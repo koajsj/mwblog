@@ -1,0 +1,98 @@
+---
+import { AUTHOR_COLORS, AUTHOR_LABELS } from "../lib/types";
+import type { AuthorKey } from "../lib/types";
+
+interface Props {
+  title: string;
+  description?: string;
+  current?: string;
+  narrow?: boolean;
+  htmlClass?: string;
+  bodyClass?: string;
+  fullBleed?: boolean;
+  hideNav?: boolean;
+  backHref?: string;
+  backLabel?: string;
+}
+
+const {
+  title,
+  description = "Our Nest, a shared life blog.",
+  current = "",
+  narrow = false,
+  htmlClass = "",
+  bodyClass = "",
+  fullBleed = false,
+  hideNav = false,
+  backHref,
+  backLabel = "Back",
+} = Astro.props;
+const user = Astro.locals.user;
+const profile = Astro.locals.profile;
+const authorKey = (profile?.author_key || "white") as AuthorKey;
+const userColor = AUTHOR_COLORS[authorKey];
+const homeHref = current === "home" ? "#home" : "/?skipCover=1#home";
+---
+
+<!DOCTYPE html>
+<html lang="zh-CN" class={htmlClass}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/png" href="/浏览器图标.png" />
+    <script is:inline>document.documentElement.classList.add("site-loading");</script>
+    <slot name="head" />
+    <link rel="stylesheet" href="/styles/site-loader.css" />
+    <link rel="stylesheet" href="/styles/app.css" />
+    <link rel="stylesheet" href="/styles/confirm-delete.css" />
+  </head>
+  <body class:list={[bodyClass]}>
+    <div class="site-loader" aria-hidden="true">
+      <div class="site-loader__card">
+        <div class="site-loader__moonstep"></div>
+        <p class="site-loader__brand">Our Nest</p>
+      </div>
+    </div>
+
+    <div class="site-bg" aria-hidden="true"></div>
+    {backHref && (
+      <a class="site-back-btn" href={backHref} aria-label={backLabel}>← {backLabel}</a>
+    )}
+    {!hideNav && (
+      <header class="site-nav">
+        <a class="site-brand" href={homeHref}>Our Nest</a>
+        <nav aria-label="Main navigation">
+          <a class:list={{ active: current === "home" }} href={homeHref}>Home</a>
+          <a class:list={{ active: current === "blog" }} href="/blog">Blog</a>
+          <a class:list={{ active: current === "records" }} href="/records">Records</a>
+          <a class:list={{ active: current === "photos" }} href="/photos">Photos</a>
+          <a class:list={{ active: current === "activity" }} href="/activity">Activity</a>
+          <a class:list={{ active: current === "todo" }} href="/todo">To Do</a>
+        </nav>
+        <div class="site-auth">
+          {user ? (
+            <form action="/api/auth/logout" method="post">
+              <span class="user-pill" style={`--user-color:${userColor}`} title={profile?.display_name || AUTHOR_LABELS[authorKey]}>{profile?.display_name || AUTHOR_LABELS[authorKey]}</span>
+              <button class="link-button" type="submit">Log out</button>
+            </form>
+          ) : (
+            <a class="login-link" href="/auth/login">Log in</a>
+          )}
+        </div>
+      </header>
+    )}
+    {fullBleed ? (
+      <slot />
+    ) : (
+      <main class:list={["page-shell", { "page-shell--narrow": narrow }]}>
+        <slot />
+      </main>
+    )}
+    <script is:inline src="/scripts/confirm-delete.js"></script>
+    <script is:inline src="/scripts/site-prefetch.js"></script>
+    <script is:inline src="/scripts/site-loader.js"></script>
+    <slot name="scripts" />
+  </body>
+</html>

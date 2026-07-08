@@ -1,0 +1,492 @@
+---
+import PrototypeLayout from "../layouts/PrototypeLayout.astro";
+import { createServiceClient } from "../lib/supabase";
+import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
+import { ACTIVITY_PERIODS, AUTHOR_COLORS } from "../lib/types";
+import type { ActivityEntry, AuthorKey } from "../lib/types";
+
+const supabase = createServiceClient();
+const todayKey = new Date().toISOString().slice(0, 10);
+const requestedDate = Astro.url.searchParams.get("date") || todayKey;
+const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : todayKey;
+const requestedMonth = Astro.url.searchParams.get("month") || selectedDate.slice(0, 7);
+const monthHit = requestedMonth.match(/^(\d{4})-(\d{2})$/);
+const selectedMonth = monthHit && Number(monthHit[2]) >= 1 && Number(monthHit[2]) <= 12 ? requestedMonth : selectedDate.slice(0, 7);
+const selectedView = (Astro.url.searchParams.get("view") === "brown" ? "brown" : "white") as AuthorKey;
+const selectedMode = Astro.url.searchParams.get("mode") === "month" ? "month" : "day";
+const user = Astro.locals.user;
+const profile = Astro.locals.profile;
+const noticeError = Astro.url.searchParams.get("error");
+const created = Astro.url.searchParams.get("created");
+const deleted = Astro.url.searchParams.get("deleted");
+const returnTo = `/activity?date=${encodeURIComponent(selectedDate)}&view=${selectedView}&month=${encodeURIComponent(selectedMonth)}&mode=day`;
+
+function nextMonthKey(month: string) {
+  const [year, monthNum] = month.split("-").map(Number);
+  const next = new Date(Date.UTC(year, monthNum, 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+const nextMonth = nextMonthKey(selectedMonth);
+
+const [{ data }, { data: monthData }, { data: authorRows }] = await Promise.all([
+  supabase
+    .from("activity_entries")
+    .select("id,owner_id,activity_on,period,category,minutes,body,start_time,end_time,created_at,profiles(display_name,author_key)")
+    .eq("activity_on", selectedDate)
+    .order("created_at", { ascending: true }),
+  supabase
+    .from("activity_entries")
+    .select("id,owner_id,activity_on,period,category,minutes,body,start_time,end_time,created_at,profiles(display_name,author_key)")
+    .gte("activity_on", `${selectedMonth}-01`)
+    .lt("activity_on", `${nextMonth}-01`)
+    .order("activity_on", { ascending: true })
+    .order("created_at", { ascending: true }),
+  supabase.from("profiles").select("author_key,display_name"),
+]);
+
+const periodStarts: Record<string, number> = {
+  morning: 5 * 60,
+  forenoon: 8 * 60,
+  noon: 11 * 60,
+  afternoon: 14 * 60,
+  dusk: 17 * 60,
+  evening: 19 * 60,
+  midnight: 23 * 60,
+};
+
+const taskColors = [
+  "#7aa6d4",
+  "#d49356",
+  "#91c6b6",
+  "#e6a6bd",
+  "#a7c978",
+  "#b9aedb",
+  "#efb36f",
+  "#8cb7a3",
+  "#d8877e",
+  "#8fa7cf",
+];
+
+function parseClock(value: string | null | undefined) {
+  const hit = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!hit) return null;
+  const hours = Number(hit[1]);
+  const minutes = Number(hit[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function fmtClockFromMinutes(value: number) {
+  const wrapped = ((value % 1440) + 1440) % 1440;
+  const hours = Math.floor(wrapped / 60);
+  const minutes = wrapped % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function fmtEntryTime(entry: ActivityEntry) {
+  const start = entryStartMinute(entry);
+  const end = start + entryDuration(entry);
+  return `${fmtClockFromMinutes(start)}-${fmtClockFromMinutes(end)}`;
+}
+
+function fmtMinutes(value: number) {
+  const minutes = Number(value) || 0;
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${hours} hr${hours > 1 ? "s" : ""}${rest ? ` ${rest} min` : ""}`;
+}
+
+function taskName(entry: ActivityEntry) {
+  return entry.body.trim() || "Untitled task";
+}
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function colorForTask(name: string) {
+  return taskColors[hashString(name) % taskColors.length];
+}
+
+function entryStartMinute(entry: ActivityEntry) {
+  return parseClock(entry.start_time) ?? periodStarts[entry.period] ?? 0;
+}
+
+function entryDuration(entry: ActivityEntry) {
+  const start = parseClock(entry.start_time);
+  const end = parseClock(entry.end_time);
+  if (start !== null && end !== null) {
+    const duration = end > start ? end - start : end + 1440 - start;
+    return Math.max(1, Math.min(1440, duration));
+  }
+  return Math.max(1, Math.min(1440, Number(entry.minutes || 1)));
+}
+
+const allEntries = ((data || []) as ActivityEntry[]).sort((a, b) => {
+  const startDiff = entryStartMinute(a) - entryStartMinute(b);
+  if (startDiff !== 0) return startDiff;
+  return a.created_at.localeCompare(b.created_at);
+});
+
+const entries = allEntries.filter((entry) => (entry.profiles?.author_key || "white") === selectedView);
+const monthEntries = ((monthData || []) as ActivityEntry[]).filter((entry) => (entry.profiles?.author_key || "white") === selectedView);
+const authorNames = makeAuthorNames(authorRows || []);
+const selectedLabel = authorNames[selectedView];
+const selectedColor = AUTHOR_COLORS[selectedView];
+const canCreateForView = user && profile?.author_key === selectedView;
+const currentAuthor = (profile?.author_key || "white") as AuthorKey;
+const currentAuthorName = authorDisplayName(profile, currentAuthor, authorNames);
+
+function totalMinutes(list: ActivityEntry[]) {
+  return list.reduce((sum, entry) => sum + entryDuration(entry), 0);
+}
+
+function groupByTask(list: ActivityEntry[]) {
+  const map = new Map<string, { minutes: number; entries: ActivityEntry[] }>();
+  list.forEach((entry) => {
+    const name = taskName(entry);
+    const current = map.get(name) || { minutes: 0, entries: [] };
+    current.minutes += entryDuration(entry);
+    current.entries.push(entry);
+    map.set(name, current);
+  });
+  return Array.from(map.entries())
+    .map(([name, value]) => ({ name, ...value }))
+    .sort((a, b) => {
+      const startDiff = entryStartMinute(a.entries[0]) - entryStartMinute(b.entries[0]);
+      return startDiff !== 0 ? startDiff : b.minutes - a.minutes;
+    });
+}
+
+function taskStats(list: ActivityEntry[]) {
+  return groupByTask(list).sort((a, b) => b.minutes - a.minutes);
+}
+
+function donutGradient(list: ActivityEntry[]) {
+  const total = totalMinutes(list);
+  if (!total) return "conic-gradient(#dbe5ef 0 100%)";
+  let start = 0;
+  const stops = taskStats(list).map((task) => {
+    const pct = (task.minutes / total) * 100;
+    const color = colorForTask(task.name);
+    const stop = `${color} ${start.toFixed(2)}% ${(start + pct).toFixed(2)}%`;
+    start += pct;
+    return stop;
+  });
+  return `conic-gradient(${stops.join(", ")})`;
+}
+
+function periodUsedMinutes(list: ActivityEntry[], key: string) {
+  return list
+    .filter((entry) => entry.period === key)
+    .reduce((sum, entry) => sum + entryDuration(entry), 0);
+}
+
+const timelineRows = groupByTask(entries);
+const stats = taskStats(entries);
+const total = totalMinutes(entries);
+const monthStats = taskStats(monthEntries);
+const monthTotal = totalMinutes(monthEntries);
+const monthActiveDays = new Set(monthEntries.map((entry) => entry.activity_on)).size;
+const monthMaxTaskMinutes = Math.max(...monthStats.map((task) => task.minutes), 1);
+const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
+---
+
+<PrototypeLayout title="Activity - Our Nest" current="activity" bgClass="act-bg" backHref="/?skipCover=1#home">
+  <Fragment slot="head">
+    <link rel="stylesheet" href="/styles/activity.css" />
+  </Fragment>
+
+  <main class:list={["act-shell", { "act-shell--month": selectedMode === "month" }]} style={`--active-author:${selectedColor}`}>
+    <section class="act-main" aria-labelledby="activityTitle">
+      <header class="act-head">
+        <p class="act-kicker">A gentle timeline of where the day went</p>
+        <h1 id="activityTitle">Activity</h1>
+        <p class="act-summary" id="daySummary">
+          {selectedMode === "month"
+            ? `${selectedLabel} logged ${fmtMinutes(monthTotal)} in ${selectedMonth}`
+            : `${selectedLabel} logged ${fmtMinutes(total)} across ${entries.length} tasks`}
+        </p>
+        {noticeError && <p style="margin-top:10px;color:#9d3f3f;background:rgba(255,242,242,.8);padding:10px 14px;border-radius:12px;display:inline-block;">{noticeError}</p>}
+        {created === "activity" && <p style="margin-top:10px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Activity saved.</p>}
+        {deleted === "activity" && <p style="margin-top:10px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Activity deleted.</p>}
+
+        <div class="act-head__tools">
+          <div class="act-view act-mode" aria-label="Choose activity view">
+            <a class:list={["act-view__btn", { "is-active": selectedMode === "day" }]} href={`/activity?date=${selectedDate}&view=${selectedView}&month=${selectedMonth}&mode=day`}>Daily</a>
+            <a class:list={["act-view__btn", { "is-active": selectedMode === "month" }]} href={`/activity?date=${selectedDate}&view=${selectedView}&month=${selectedMonth}&mode=month`}>Monthly</a>
+          </div>
+          <div class="act-view" id="actView" aria-label="Choose whose timeline to view">
+            <a class:list={["act-view__btn", { "is-active": selectedView === "white" }]} href={`/activity?date=${selectedDate}&view=white&month=${selectedMonth}&mode=${selectedMode}`} data-view="white">{authorNames.white}</a>
+            <a class:list={["act-view__btn", { "is-active": selectedView === "brown" }]} href={`/activity?date=${selectedDate}&view=brown&month=${selectedMonth}&mode=${selectedMode}`} data-view="brown">{authorNames.brown}</a>
+          </div>
+          {selectedMode === "day" ? (
+            <>
+              <form class="act-date-form" method="get" action="/activity" style="display:inline-flex;gap:8px;padding:6px;border-radius:999px;background:rgba(255,255,255,.48);">
+                <input type="hidden" name="view" value={selectedView} />
+                <input type="hidden" name="month" value={selectedMonth} />
+                <input type="hidden" name="mode" value="day" />
+                <input id="actViewDate" name="date" type="date" value={selectedDate} aria-label="View date" style="width:142px;border:none;border-radius:999px;padding:8px 12px;background:rgba(255,255,255,.74);color:#647084;font-size:13px;font-weight: 650;" />
+                <button type="submit" style="border:none;border-radius:999px;padding:10px 20px;background:rgba(255,255,255,.74);color:#4f6a82;font-weight: 600;font-size:13px;cursor:pointer;">View</button>
+              </form>
+              <button class="act-add-toggle" id="actFormToggle" type="button" aria-expanded="false" aria-controls="activityForm">
+                Add activity
+              </button>
+            </>
+          ) : (
+            <form class="act-month-form" method="get" action="/activity" aria-label="Choose month">
+              <input type="hidden" name="view" value={selectedView} />
+              <input type="hidden" name="date" value={selectedDate} />
+              <input type="hidden" name="mode" value="month" />
+              <input id="actViewMonth" name="month" type="month" value={selectedMonth} aria-label="View month" />
+              <button type="submit">Month</button>
+            </form>
+          )}
+        </div>
+      </header>
+
+      {selectedMode === "day" && <form class="act-form is-hidden" id="activityForm" action="/api/activity/create" method="post">
+        <input type="hidden" name="return_to" value={returnTo} />
+        <input type="hidden" name="activity_on" value={selectedDate} />
+        <div class="act-form__row">
+          <div class="act-field act-field--date-note">
+            <span>Date</span>
+            <strong>{selectedDate}</strong>
+          </div>
+          <div class="act-field">
+            <span>Author</span>
+            <div class="act-who" id="actWho" aria-label={`Current account: ${currentAuthorName}`}>
+              <span class={`act-who__btn ${selectedView === "white" ? "is-active" : ""}`} data-who="white">{authorNames.white}</span>
+              <span class={`act-who__btn ${selectedView === "brown" ? "is-active" : ""}`} data-who="brown">{authorNames.brown}</span>
+            </div>
+          </div>
+        </div>
+
+        {!user ? (
+          <p style="color:#7a8aa0;font-size:13px;padding:14px 0;">Log in to add activity records. <a href="/auth/login" style="color:#d49356;font-weight: 650;">Log in</a></p>
+        ) : !canCreateForView ? (
+          <p style="color:#7a8aa0;font-size:13px;padding:14px 0;">Current account: {currentAuthorName}. You can only add records to your own timeline.</p>
+        ) : (
+          <>
+            <div class="act-form__row act-form__row--time">
+              <label class="act-field">
+                <span>Task name</span>
+                <input name="body" id="actText" maxlength="80" placeholder="For example: polish the photo wall" required />
+              </label>
+              <label class="act-field">
+                <span>Start (24-hour)</span>
+                <input name="start_time" id="actStartTime" type="text" inputmode="numeric" pattern="^([01][0-9]|2[0-3]):[0-5][0-9]$" placeholder="09:00" value="09:00" data-clock-input required />
+              </label>
+              <label class="act-field">
+                <span>End (24-hour)</span>
+                <input name="end_time" id="actEndTime" type="text" inputmode="numeric" pattern="^([01][0-9]|2[0-3]):[0-5][0-9]$" placeholder="10:00" value="10:00" data-clock-input required />
+              </label>
+            </div>
+
+            <button class="act-submit" type="submit">Add record</button>
+          </>
+        )}
+      </form>}
+
+      {selectedMode === "day" && <section class="act-section" aria-labelledby="timelineTitle">
+        <div class="act-section__head">
+          <div>
+            <h2 id="timelineTitle">{selectedLabel}'s timeline</h2>
+            <p class="act-section__hint">Scroll sideways to inspect the 24-hour line.</p>
+          </div>
+          <div class="act-legend">
+            <span><i class="act-dot act-dot--white"></i>{authorNames.white}</span>
+            <span><i class="act-dot act-dot--brown"></i>{authorNames.brown}</span>
+          </div>
+        </div>
+        <div class="act-timeline" id="actTimeline">
+          <div class="timeline-grid">
+            <div class="timeline-grid__corner">Task</div>
+            <div class="timeline-grid__scale" aria-hidden="true">
+              {timeTicks.map((tick) => (
+                <span style={`left:${(tick / 1440) * 100}%`}>{fmtClockFromMinutes(tick)}</span>
+              ))}
+            </div>
+
+            {timelineRows.length ? timelineRows.map((row) => (
+              <section class="timeline-row">
+                <div class="timeline-row__label" title={row.name}>
+                  <strong>{row.name}</strong>
+                  <span>{fmtMinutes(row.minutes)}</span>
+                </div>
+                <div class="timeline-row__track">
+                  {row.entries.map((entry) => {
+                    const start = entryStartMinute(entry);
+                    const duration = entryDuration(entry);
+                    const isOwner = user?.id === entry.owner_id;
+                    const name = taskName(entry);
+                    return (
+                      <article
+                        class:list={["timeline-block", `timeline-block--${selectedView}`]}
+                        style={`--x:${((start / 1440) * 100).toFixed(3)}%;--w:${((duration / 1440) * 100).toFixed(3)}%;--bar:${colorForTask(name)}`}
+                        title={`${name} ${fmtEntryTime(entry)} (${fmtMinutes(duration)})`}
+                      >
+                        <span class="timeline-block__name">{name}</span>
+                        <span class="timeline-block__time">{fmtEntryTime(entry)}</span>
+                        {isOwner && (
+                          <form action="/api/activity/delete" method="post" class="time-block__delform" data-confirm="Delete this activity record?" data-confirm-title="Delete activity?" style="display:inline;">
+                            <input type="hidden" name="return_to" value={returnTo} />
+                            <input type="hidden" name="id" value={entry.id} />
+                            <button class="time-block__del" type="submit" aria-label="Delete this activity">x</button>
+                          </form>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            )) : (
+              <div class="timeline-empty">{selectedLabel} has no activity records for this day yet.</div>
+            )}
+          </div>
+        </div>
+      </section>}
+
+      {selectedMode === "month" && <section class="act-section act-month-section" aria-labelledby="monthTitle">
+        <div class="act-section__head">
+          <div>
+            <h2 id="monthTitle">{selectedLabel}'s month view</h2>
+            <p class="act-section__hint">{selectedMonth} · {fmtMinutes(monthTotal)} across {monthActiveDays} active days</p>
+          </div>
+        </div>
+
+        <div class="month-panel">
+          <article class="month-card month-card--donut">
+            <div>
+              <p class="month-card__kicker">Task ratio</p>
+              <h3>Monthly split</h3>
+            </div>
+            <div class="act-donut month-donut" style={`background:${donutGradient(monthEntries)}`} aria-label="Monthly task ratio chart">
+              <span>{fmtMinutes(monthTotal)}</span>
+            </div>
+            <div class="month-legend">
+              {monthStats.length ? monthStats.map((task) => (
+                <div class="month-legend__item">
+                  <i style={`--c:${colorForTask(task.name)}`}></i>
+                  <span title={task.name}>{task.name}</span>
+                  <strong>{monthTotal ? Math.round((task.minutes / monthTotal) * 100) : 0}%</strong>
+                </div>
+              )) : <p class="stat-empty">No tasks recorded in this month yet.</p>}
+            </div>
+          </article>
+
+          <article class="month-card month-card--bars">
+            <div>
+              <p class="month-card__kicker">Task duration</p>
+              <h3>Monthly hours</h3>
+            </div>
+            {monthStats.length ? (
+              <div class="month-bars" aria-label="Monthly task duration bar chart">
+                {monthStats.map((task) => (
+                  <div class="month-bar" style={`--h:${Math.max(10, (task.minutes / monthMaxTaskMinutes) * 100).toFixed(1)}%;--c:${colorForTask(task.name)}`}>
+                    <div class="month-bar__column">
+                      <span>{fmtMinutes(task.minutes)}</span>
+                    </div>
+                    <p title={task.name}>{task.name}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p class="stat-empty">Choose a month with activity records to see the duration bars.</p>
+            )}
+          </article>
+        </div>
+      </section>}
+    </section>
+
+    {selectedMode === "day" && <aside class="act-side" aria-label="Daily stats">
+      <section class="act-stat">
+        <h2 id="categoryTitle">{selectedLabel}'s task split</h2>
+        <div class="act-donut" id="actDonut" style={`background:${donutGradient(entries)}`} aria-label="Daily task chart">
+          <span id="actDonutText">{fmtMinutes(total)}</span>
+        </div>
+        <div class="act-bars" id="actBars">
+          {stats.length ? stats.map((task) => (
+            <div class="stat-bar">
+              <div class="stat-bar__top">
+                <span title={task.name}>{task.name}</span>
+                <span>{fmtMinutes(task.minutes)}</span>
+              </div>
+              <div class="stat-bar__rail">
+                <div class="stat-bar__fill" style={`--w:${((task.minutes / total) * 100).toFixed(1)}%;--c:${colorForTask(task.name)}`}></div>
+              </div>
+            </div>
+          )) : <p class="stat-empty">Add {selectedLabel}'s tasks to see the task split.</p>}
+        </div>
+      </section>
+
+      <section class="act-stat">
+        <h2 id="periodTitle">{selectedLabel}'s start-time overview</h2>
+        <div class="act-periods" id="actPeriods">
+          {ACTIVITY_PERIODS.map((period) => {
+            const used = periodUsedMinutes(entries, period.key);
+            return (
+              <div class="period-pill">
+                <div class="period-pill__top">
+                  <span>{period.label}</span>
+                  <span>{fmtMinutes(used)}</span>
+                </div>
+                <div class="period-pill__rail">
+                  <div class="period-pill__fill" style={`--w:${Math.min(100, (used / period.minutes) * 100).toFixed(1)}%`}></div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </aside>}
+  </main>
+
+  <Fragment slot="scripts">
+    <script is:inline>
+      (function () {
+        "use strict";
+        var toggle = document.getElementById("actFormToggle");
+        var form = document.getElementById("activityForm");
+        var viewDate = document.getElementById("actViewDate");
+        var viewMonth = document.getElementById("actViewMonth");
+        if (viewDate && viewDate.form) {
+          viewDate.addEventListener("change", function () {
+            if (viewDate.form.requestSubmit) viewDate.form.requestSubmit();
+            else viewDate.form.submit();
+          });
+        }
+        if (viewMonth && viewMonth.form) {
+          viewMonth.addEventListener("change", function () {
+            if (viewMonth.form.requestSubmit) viewMonth.form.requestSubmit();
+            else viewMonth.form.submit();
+          });
+        }
+        if (toggle && form) {
+          toggle.addEventListener("click", function () {
+            var open = form.classList.contains("is-hidden");
+            form.classList.toggle("is-hidden", !open);
+            toggle.setAttribute("aria-expanded", open ? "true" : "false");
+            toggle.textContent = open ? "Close form" : "Add activity";
+          });
+        }
+        document.querySelectorAll("[data-clock-input]").forEach(function (input) {
+          input.addEventListener("blur", function () {
+            var hit = String(input.value || "").trim().match(/^(\d{1,2}):?(\d{2})$/);
+            if (!hit) return;
+            var hours = Number(hit[1]);
+            var minutes = Number(hit[2]);
+            if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return;
+            input.value = String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0");
+          });
+        });
+      })();
+    </script>
+  </Fragment>
+</PrototypeLayout>

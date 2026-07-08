@@ -1,0 +1,184 @@
+/* 评论区：聊天气泡式
+   白狗 (#7aa6d4) 永远靠左，棕狗 (#d49356) 永远靠右
+   blog 和 records 共用 */
+.cmt-section {
+  margin-top: 36px;
+  padding: 24px 22px 22px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 12px 30px rgba(70, 80, 110, 0.08);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.cmt-section--compact {
+  margin-top: 14px;
+  padding: 16px 16px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 6px 16px rgba(70, 80, 110, 0.06);
+}
+.cmt-title {
+  font-size: 14px;
+  font-weight: 650;
+  color: #4f6a82;
+  margin-bottom: 14px;
+  letter-spacing: 0.3px;
+}
+.cmt-section--compact .cmt-title {
+  font-size: 12px;
+  margin-bottom: 10px;
+  opacity: 0.78;
+}
+.cmt-empty {
+  font-size: 13px;
+  color: #95a2b6;
+  padding: 6px 0 4px;
+}
+
+.cmt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.cmt-section--compact .cmt-list {
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+/* 一条气泡 */
+.cmt-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 78%;
+}
+.cmt-row--white { align-self: flex-start; align-items: flex-start; }
+.cmt-row--brown { align-self: flex-end; align-items: flex-end; }
+
+.cmt-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  color: #8896a8;
+  padding: 0 6px;
+}
+.cmt-meta__name { font-weight: 650; }
+.cmt-row--white .cmt-meta__name { color: #5b86b3; }
+.cmt-row--brown .cmt-meta__name { color: #b07238; }
+.cmt-meta__time { opacity: 0.7; }
+
+.cmt-bubble {
+  position: relative;
+  padding: 9px 14px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: 0 4px 10px rgba(70, 80, 110, 0.08);
+}
+.cmt-row--white .cmt-bubble {
+  background: linear-gradient(135deg, #d9e7f4 0%, #c9dcef 100%);
+  color: #2c4660;
+  border-bottom-left-radius: 4px;
+}
+.cmt-row--brown .cmt-bubble {
+  background: linear-gradient(135deg, #f5dbb9 0%, #efc795 100%);
+  color: #6b4422;
+  border-bottom-right-radius: 4px;
+}
+
+.cmt-bubble__delete {
+  position: absolute;
+  top: -8px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.92);
+  color: #b8536a;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 9px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  opacity: 0;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.cmt-row--white .cmt-bubble__delete { right: -6px; }
+.cmt-row--brown .cmt-bubble__delete { left: -6px; }
+.cmt-row:hover .cmt-bubble__delete,
+.cmt-row:focus-within .cmt-bubble__delete { opacity: 1; }
+.cmt-bubble__delete:hover { transform: translateY(-1px); color: #983a4f; }
+.cmt-bubble__delete form { display: inline; margin: 0; }
+.cmt-bubble__delete button {
+  background: none; border: 0; color: inherit;
+  font: inherit; cursor: pointer; padding: 0;
+}
+
+/* 输入区 */
+.cmt-form {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(180, 195, 215, 0.4);
+  border-radius: 14px;
+  padding: 8px 8px 8px 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.cmt-form:focus-within {
+  border-color: rgba(122, 166, 212, 0.7);
+  box-shadow: 0 0 0 3px rgba(122, 166, 212, 0.15);
+}
+.cmt-form textarea {
+  flex: 1;
+  min-height: 38px;
+  max-height: 140px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #2f3b4d;
+  padding: 6px 0;
+}
+.cmt-form textarea::placeholder { color: #b0bccc; }
+.cmt-form__send {
+  flex: 0 0 auto;
+  height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: #2f3b55;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.18s ease;
+}
+.cmt-form__send:hover { background: #1f293d; transform: translateY(-1px); }
+.cmt-form__send:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.cmt-login-prompt {
+  font-size: 13px;
+  color: #6b7a91;
+  padding: 10px 14px;
+  background: rgba(245, 247, 252, 0.78);
+  border-radius: 12px;
+  text-align: center;
+}
+.cmt-login-prompt a {
+  color: #4569a3;
+  font-weight: 650;
+  text-decoration: none;
+}
+.cmt-login-prompt a:hover { text-decoration: underline; }
+
+@media (max-width: 640px) {
+  .cmt-section { padding: 18px 14px 16px; }
+  .cmt-row { max-width: 88%; }
+  .cmt-bubble { font-size: 13.5px; }
+}

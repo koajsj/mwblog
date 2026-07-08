@@ -1,0 +1,162 @@
+---
+import PrototypeLayout from "../../layouts/PrototypeLayout.astro";
+import { createServiceClient } from "../../lib/supabase";
+import { estimatedReadMinutes, firstMarkdownHeading, markdownToPlainText, renderArticleSections } from "../../lib/markdown";
+import { authorDisplayName } from "../../lib/author-display";
+import { formatCommentTime } from "../../lib/comments-display";
+import { shanghaiParts } from "../../lib/datetime";
+import type { AuthorKey, BlogPost, Comment } from "../../lib/types";
+
+function safeDecode(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+const slug = safeDecode(Astro.params.slug || "");
+const supabase = createServiceClient();
+const { data } = await supabase
+  .from("blog_posts")
+  .select("id,slug,title,excerpt,content_markdown,tags,published_at,created_at,author_id,profiles(display_name,author_key)")
+  .eq("slug", slug)
+  .maybeSingle();
+
+if (!data) {
+  return Astro.redirect("/blog");
+}
+
+const post = data as BlogPost;
+const author = (post.profiles?.author_key || "white") as AuthorKey;
+const authorName = authorDisplayName(post.profiles, author);
+const dateValue = post.published_at || post.created_at;
+const formatDate = (value: string) => {
+  const p = shanghaiParts(value);
+  if (!p) return "";
+  return `${p.year}.${p.month}.${p.day} ${p.hour}:${p.minute}`;
+};
+const sections = renderArticleSections(post.content_markdown || "");
+const displayTitle = markdownToPlainText(post.title || "") || firstMarkdownHeading(post.content_markdown || "") || post.title;
+const displayExcerpt = post.excerpt ? markdownToPlainText(post.excerpt) : "";
+const readMinutes = estimatedReadMinutes(post.content_markdown || "");
+const user = Astro.locals.user;
+
+const { data: commentRows } = await supabase
+  .from("comments")
+  .select("id,target_type,target_id,author_id,body,created_at,profiles(display_name,author_key)")
+  .eq("target_type", "blog")
+  .eq("target_id", post.id)
+  .order("created_at", { ascending: true });
+const comments = (commentRows || []) as Comment[];
+const returnTo = `/blog/${encodeURIComponent(post.slug)}`;
+const commentError = Astro.url.searchParams.get("error");
+---
+
+<PrototypeLayout title={`${displayTitle} · Our Nest`} current="blog" bgClass="blog-bg">
+  <Fragment slot="head">
+    <link rel="stylesheet" href="/styles/blog.css" />
+    <link rel="stylesheet" href="/styles/comments.css" />
+  </Fragment>
+
+  <main class="blog-shell">
+    <article class="article">
+      <header class="article-head">
+        <div class="blog-detail-actions">
+          <a class="blog-detail-back" href="/blog" aria-label="Back to blog">Back</a>
+          {user?.id === post.author_id && (
+            <form class="blog-detail-delete" action="/api/blog/delete" method="post" data-confirm="Delete this post? This cannot be undone." data-confirm-title="Delete post?">
+              <input type="hidden" name="id" value={post.id} />
+              <input type="hidden" name="return_to" value="/blog" />
+              <button type="submit">Delete post</button>
+            </form>
+          )}
+        </div>
+        <div class="blog-tags" id="blogTags" aria-label="Post metadata">
+          <span class={`blog-tag blog-tag--${author}`}>{authorName}</span>
+          <span class="blog-tag">{formatDate(dateValue)}</span>
+          <span class="blog-tag">{readMinutes} min read</span>
+          {(post.tags || []).map((tag) => <span class="blog-tag">{tag}</span>)}
+        </div>
+        <h1>{displayTitle}</h1>
+        {displayExcerpt && <p class="article-summary">{displayExcerpt}</p>}
+      </header>
+
+      {sections.map((section) => (
+        <section class="article-section" id={section.id} data-toc-title={section.title}>
+          {section.title !== "Content" && <h2>{section.title}</h2>}
+          <Fragment set:html={section.html} />
+        </section>
+      ))}
+
+      <section class="cmt-section" id="comments" aria-label="Comments">
+        <p class="cmt-title">Comments · {comments.length}</p>
+
+        {commentError && (
+          <p style="font-size:13px;color:#9d3f3f;background:rgba(255,242,242,.85);padding:8px 14px;border-radius:10px;margin-bottom:12px;">{commentError}</p>
+        )}
+
+        {comments.length ? (
+          <div class="cmt-list">
+            {comments.map((c) => {
+              const who = (c.profiles?.author_key || "white") as AuthorKey;
+              const name = authorDisplayName(c.profiles, who);
+              return (
+                <div class={`cmt-row cmt-row--${who}`}>
+                  <div class="cmt-meta">
+                    <span class="cmt-meta__name">{who === "white" ? "🐶" : "🐕"} {name}</span>
+                    <span class="cmt-meta__time">{formatCommentTime(c.created_at)}</span>
+                  </div>
+                  <div class="cmt-bubble">
+                    {c.body}
+                    {user?.id === c.author_id && (
+                      <span class="cmt-bubble__delete">
+                        <form action="/api/comments/delete" method="post" data-confirm="Delete this comment?" data-confirm-title="Delete comment?">
+                          <input type="hidden" name="id" value={c.id} />
+                          <input type="hidden" name="return_to" value={returnTo} />
+                          <button type="submit" aria-label="Delete comment">Delete</button>
+                        </form>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p class="cmt-empty">No comments yet. Be the first to leave one.</p>
+        )}
+
+        {user ? (
+          <form class="cmt-form" action="/api/comments/create" method="post">
+            <input type="hidden" name="target_type" value="blog" />
+            <input type="hidden" name="target_id" value={post.id} />
+            <input type="hidden" name="return_to" value={returnTo} />
+            <textarea name="body" maxlength="500" rows="2" placeholder="Write a comment..." required></textarea>
+            <button class="cmt-form__send" type="submit">Send</button>
+          </form>
+        ) : (
+          <p class="cmt-login-prompt">
+            <a href={`/auth/login?redirect=${encodeURIComponent(returnTo)}`}>Log in</a> to leave a comment.
+          </p>
+        )}
+      </section>
+    </article>
+
+    <aside class="toc" aria-label="Table of contents">
+      <div class="toc__inner">
+        <p class="toc__title">TABLE OF CONTENTS</p>
+        <div class="toc__body">
+          <span class="toc__track" aria-hidden="true">
+            <span class="toc__fill" id="tocFill"></span>
+          </span>
+          <nav class="toc__list" id="tocList"></nav>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <Fragment slot="scripts">
+    <script is:inline src="/scripts/blog.js"></script>
+  </Fragment>
+</PrototypeLayout>

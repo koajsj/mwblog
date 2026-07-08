@@ -1,0 +1,26 @@
+/* ============================================================
+   全站滚动进入动画
+   内容进入视口时从下方淡入上移；离开视口后重置，可反复触发。
+   ============================================================ */
+
+.sr-ready .sr-reveal {
+  opacity: 0;
+  transform: translateY(var(--sr-offset, 34px));
+  transition:
+    opacity 0.68s ease-out var(--sr-delay, 0ms),
+    transform 0.68s ease-out var(--sr-delay, 0ms);
+  will-change: opacity, transform;
+}
+
+.sr-ready .sr-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sr-ready .sr-reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}

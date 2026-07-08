@@ -1,0 +1,30 @@
+---
+import PrototypeLayout from "../layouts/PrototypeLayout.astro";
+import TodoApp from "../components/TodoApp";
+import { createServiceClient } from "../lib/supabase";
+import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
+import type { AuthorKey } from "../lib/types";
+
+const selectedView = (Astro.url.searchParams.get("view") === "brown" ? "brown" : "white") as AuthorKey;
+const user = Astro.locals.user;
+const profile = Astro.locals.profile;
+const currentAuthor = profile?.author_key as AuthorKey | undefined;
+const supabase = createServiceClient();
+const { data: authorRows } = await supabase.from("profiles").select("author_key,display_name");
+const authorNames = makeAuthorNames(authorRows || []);
+const currentAuthorName = authorDisplayName(profile, currentAuthor || "white", authorNames);
+---
+
+<PrototypeLayout title="To Do - Our Nest" current="todo" bgClass="todo-bg" backHref="/?skipCover=1#home">
+  <Fragment slot="head">
+    <link rel="stylesheet" href="/styles/todo.css" />
+  </Fragment>
+
+  <TodoApp
+    client:load
+    initialView={selectedView}
+    authorNames={authorNames}
+    currentAuthor={user ? currentAuthor || "white" : null}
+    profile={profile}
+  />
+</PrototypeLayout>

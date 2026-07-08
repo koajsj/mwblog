@@ -1,0 +1,499 @@
+---
+import PrototypeLayout from "../layouts/PrototypeLayout.astro";
+import { createServiceClient } from "../lib/supabase";
+import { getSupabaseEnv } from "../lib/env";
+import { attachSignedPhotoUrls } from "../lib/storage";
+import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
+import { formatCommentTime } from "../lib/comments-display";
+import { shanghaiParts } from "../lib/datetime";
+import { MOOD_LABELS } from "../lib/types";
+import type { AuthorKey, Comment, LifeRecord, Photo } from "../lib/types";
+
+const supabase = createServiceClient();
+const { url: supabaseUrl, anonKey: supabaseAnonKey } = getSupabaseEnv();
+const user = Astro.locals.user;
+const profile = Astro.locals.profile;
+const canCreate = !!user;
+
+const [{ data: recordsData }, { data: photosData }, { data: authorRows }] = await Promise.all([
+  supabase
+    .from("life_records")
+    .select("id,owner_id,record_on,mood,body,created_at,profiles(display_name,author_key)")
+    .order("record_on", { ascending: false })
+    .order("created_at", { ascending: false }),
+  supabase
+    .from("photos")
+    .select("id,owner_id,title,caption,taken_on,storage_path,created_at,profiles(display_name,author_key)")
+    .not("taken_on", "is", null)
+    .order("taken_on", { ascending: false })
+    .order("created_at", { ascending: false }),
+  supabase.from("profiles").select("author_key,display_name"),
+]);
+
+const records = (recordsData || []) as LifeRecord[];
+const authorNames = makeAuthorNames(authorRows || []);
+
+// 一次性拉所有记录的评论，按 record_id 分组
+const recordIds = records.map((r) => r.id);
+const { data: commentRows } = recordIds.length
+  ? await supabase
+      .from("comments")
+      .select("id,target_type,target_id,author_id,body,created_at,profiles(display_name,author_key)")
+      .eq("target_type", "record")
+      .in("target_id", recordIds)
+      .order("created_at", { ascending: true })
+  : { data: [] };
+const commentsByRecord = new Map<string, Comment[]>();
+((commentRows || []) as Comment[]).forEach((c) => {
+  const list = commentsByRecord.get(c.target_id) || [];
+  list.push(c);
+  commentsByRecord.set(c.target_id, list);
+});
+const currentAuthor = (profile?.author_key || "white") as AuthorKey;
+const currentAuthorName = authorDisplayName(profile, currentAuthor, authorNames);
+const photos = await attachSignedPhotoUrls((photosData || []) as Photo[]);
+
+const photosByKey = new Map<string, typeof photos>();
+photos.forEach((photo) => {
+  if (!photo.taken_on) return;
+  const owner = (photo.profiles?.author_key || "white") as AuthorKey;
+  const key = `${owner}|${photo.taken_on}`;
+  const list = photosByKey.get(key) || [];
+  list.push(photo);
+  photosByKey.set(key, list);
+});
+
+const grouped = new Map<string, LifeRecord[]>();
+records.forEach((record) => {
+  const list = grouped.get(record.record_on) || [];
+  list.push(record);
+  grouped.set(record.record_on, list);
+});
+const dates = Array.from(grouped.keys()).sort((a, b) => b.localeCompare(a));
+
+function prettyDate(value: string) {
+  const [, mm, dd] = value.split("-");
+  return `${Number(mm)}/${Number(dd)}`;
+}
+
+function recordTime(value: string) {
+  const p = shanghaiParts(value);
+  return p ? `${p.hour}:${p.minute}` : "";
+}
+
+const today = new Date().toISOString().slice(0, 10);
+const moods: Array<{ key: string; label: string }> = [
+  { key: "happy", label: "😄 Happy" },
+  { key: "loved", label: "🥰 Loved" },
+  { key: "calm", label: "😌 Calm" },
+  { key: "tired", label: "🥱 Tired" },
+  { key: "down", label: "😢 Low" },
+  { key: "moody", label: "😤 Moody" },
+];
+
+const noticeError = Astro.url.searchParams.get("error");
+const created = Astro.url.searchParams.get("created");
+const deleted = Astro.url.searchParams.get("deleted");
+---
+
+<PrototypeLayout title="Records · Our Nest" current="records" bgClass="rec-bg" backHref="/?skipCover=1#home">
+  <Fragment slot="head">
+    <link rel="stylesheet" href="/styles/records.css" />
+    <link rel="stylesheet" href="/styles/comments.css" />
+  </Fragment>
+
+  <main class="rec-main">
+    <header class="rec-header">
+      <h1 class="rec-title">📖 Records</h1>
+      <p class="rec-subtitle">One page a day, slowly collecting ordinary moments</p>
+      {canCreate ? (
+        <button class="rec-add-toggle" id="recAddToggle" type="button" aria-expanded="false" aria-controls="recForm">
+          ＋ Add record
+        </button>
+      ) : (
+        <a class="rec-add-toggle" href="/auth/login">Log in to add</a>
+      )}
+      {noticeError && <p style="margin-top:14px;color:#9d3f3f;background:rgba(255,242,242,.8);padding:10px 14px;border-radius:12px;display:inline-block;">{noticeError}</p>}
+      {created === "record" && <p style="margin-top:14px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Record saved.</p>}
+      {deleted === "record" && <p style="margin-top:14px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Record deleted.</p>}
+    </header>
+
+    {canCreate && (
+      <form class="rec-form is-hidden" id="recForm" action="/api/records/create" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="return_to" value="/records" />
+        <div class="rec-form__row">
+          <label class="rec-field">
+            <span>Date</span>
+            <input name="record_on" id="recDate" type="date" value={today} required />
+          </label>
+          <div class="rec-field">
+            <span>Author</span>
+            <div class="rec-who" id="recWho" aria-label={`Current account: ${currentAuthorName}`}>
+              <span class={`rec-who__btn ${profile?.author_key === "white" ? "is-active" : ""}`} data-who="white">🐶 {authorNames.white}</span>
+              <span class={`rec-who__btn ${profile?.author_key === "brown" ? "is-active" : ""}`} data-who="brown">🐕 {authorNames.brown}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rec-field">
+          <span>Mood</span>
+          <div class="rec-moods" id="recMoods">
+            {moods.map((m, idx) => (
+              <button class={`rec-mood ${idx === 0 ? "is-active" : ""}`} type="button" data-mood={m.key}>{m.label}</button>
+            ))}
+          </div>
+          <input type="hidden" name="mood" id="recMoodInput" value="happy" />
+        </div>
+
+        <label class="rec-field">
+          <span>What happened today</span>
+          <textarea name="body" id="recText" rows="4" maxlength="500" placeholder="Write a small moment, feeling, or anything worth remembering." required></textarea>
+        </label>
+
+        <div class="rec-field">
+          <span>Photos</span>
+          <label class="rec-file">
+            ＋ Choose photos (multiple allowed)
+            <input name="photos" id="recPhotos" type="file" accept="image/*" multiple hidden />
+          </label>
+          <p class="rec-file__hint" id="recPhotoHint">Photos will also appear in Photos.</p>
+        </div>
+
+        <p class="rec-file__hint" id="recFormStatus" role="status"></p>
+        <div class="rec-form__actions">
+          <button class="rec-form__cancel" id="recCancel" type="button">Cancel</button>
+          <button class="rec-form__save" type="submit">Save record</button>
+        </div>
+      </form>
+    )}
+
+    <nav class="rec-filter" id="recFilter" aria-label="Filter by author">
+      <button class="rec-filter__btn is-active" type="button" data-who="all">All</button>
+      <button class="rec-filter__btn" type="button" data-who="white">🐶 {authorNames.white}</button>
+      <button class="rec-filter__btn" type="button" data-who="brown">🐕 {authorNames.brown}</button>
+    </nav>
+
+    <div class="rec-timeline" id="recTimeline">
+      {dates.length ? dates.map((date) => {
+        const dayRecords = (grouped.get(date) || []).slice().sort((a, b) => {
+          const ak = (a.profiles?.author_key || "white") as AuthorKey;
+          const bk = (b.profiles?.author_key || "white") as AuthorKey;
+          if (ak !== bk) return ak < bk ? -1 : 1;
+          return b.created_at.localeCompare(a.created_at);
+        });
+        return (
+          <section class="rec-day" data-date={date} data-whites={dayRecords.filter((r) => (r.profiles?.author_key || "white") === "white").length} data-browns={dayRecords.filter((r) => (r.profiles?.author_key || "white") === "brown").length}>
+            <div class="rec-day__label">
+              <span class="rec-day__date">{prettyDate(date)}</span>
+              <span class="rec-day__count">{dayRecords.length} items</span>
+            </div>
+            <div class="rec-day__notes">
+              {dayRecords.map((record) => {
+                const author = (record.profiles?.author_key || "white") as AuthorKey;
+                const samePhotos = photosByKey.get(`${author}|${record.record_on}`) || [];
+                const tilt = (Math.random() * 11 - 5.5).toFixed(1);
+                const recordComments = commentsByRecord.get(record.id) || [];
+                return (
+                  <article class={`note note--${author}`} data-who={author} style={`--tilt:${tilt}deg`}>
+                    <div class="note__card" role="button" tabindex="0" aria-expanded="false">
+                      <span class="note__tape" aria-hidden="true"></span>
+                      <div class="note__top">
+                        <span class="note__author">{author === "white" ? "🐶" : "🐕"} {authorDisplayName(record.profiles, author, authorNames)}</span>
+                        <span class="note__time" title={record.created_at}>{recordTime(record.created_at)}</span>
+                        <span class="note__mood">{MOOD_LABELS[record.mood] || record.mood}</span>
+                      </div>
+                      {samePhotos.length > 0 && (
+                        <div class="note__photos">
+                          {samePhotos.map((p, idx) => (
+                            <button class="note__photo" type="button" data-lb-index={idx} data-lb-group={`${author}|${record.record_on}`}>
+                              <img src={p.publicUrl} alt={p.title || "Photo"} loading="lazy" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <div class="note__body">
+                        <p class="note__text">{record.body}</p>
+                      </div>
+                      <span class="note__hint">Click to expand ▾</span>
+                      {user?.id === record.owner_id && (
+                        <form class="note-delete" action="/api/records/delete" method="post" data-confirm="Delete this record? This cannot be undone." data-confirm-title="Delete record?">
+                          <input type="hidden" name="id" value={record.id} />
+                          <input type="hidden" name="return_to" value="/records" />
+                          <button class="note-delete__btn" type="submit">Delete</button>
+                        </form>
+                      )}
+
+                      <section class="cmt-section cmt-section--compact" id={`rc-${record.id}`} aria-label="Comments">
+                        <p class="cmt-title">💬 {recordComments.length || ""} {recordComments.length === 1 ? "comment" : "comments"}</p>
+                        {recordComments.length > 0 && (
+                          <div class="cmt-list">
+                            {recordComments.map((c) => {
+                              const who = (c.profiles?.author_key || "white") as AuthorKey;
+                              const name = authorDisplayName(c.profiles, who, authorNames);
+                              return (
+                                <div class={`cmt-row cmt-row--${who}`}>
+                                  <div class="cmt-meta">
+                                    <span class="cmt-meta__name">{who === "white" ? "🐶" : "🐕"} {name}</span>
+                                    <span class="cmt-meta__time">{formatCommentTime(c.created_at)}</span>
+                                  </div>
+                                  <div class="cmt-bubble">
+                                    {c.body}
+                                    {user?.id === c.author_id && (
+                                      <span class="cmt-bubble__delete">
+                                        <form action="/api/comments/delete" method="post" data-confirm="Delete this comment?" data-confirm-title="Delete comment?">
+                                          <input type="hidden" name="id" value={c.id} />
+                                          <input type="hidden" name="return_to" value="/records" />
+                                          <button type="submit" aria-label="Delete comment">Delete</button>
+                                        </form>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {user ? (
+                          <form class="cmt-form" action="/api/comments/create" method="post">
+                            <input type="hidden" name="target_type" value="record" />
+                            <input type="hidden" name="target_id" value={record.id} />
+                            <input type="hidden" name="return_to" value="/records" />
+                            <textarea name="body" maxlength="500" rows="1" placeholder="Leave a comment..." required></textarea>
+                            <button class="cmt-form__send" type="submit">Send</button>
+                          </form>
+                        ) : (
+                          <p class="cmt-login-prompt"><a href="/auth/login?redirect=/records">Log in</a> to comment.</p>
+                        )}
+                      </section>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        );
+      }) : (
+        <div class="rec-empty">No records yet. Add the first one above.</div>
+      )}
+    </div>
+  </main>
+
+  <div class="rec-lb is-hidden" id="recLb" role="dialog" aria-modal="true" aria-label="View photo">
+    <button class="rec-lb__close" id="recLbClose" type="button" aria-label="Close">✕</button>
+    <button class="rec-lb__nav rec-lb__nav--prev" id="recLbPrev" type="button" aria-label="Previous photo">‹</button>
+    <button class="rec-lb__nav rec-lb__nav--next" id="recLbNext" type="button" aria-label="Next photo">›</button>
+    <img class="rec-lb__img" id="recLbImg" alt="" />
+  </div>
+
+  <script id="photoData" type="application/json" set:html={JSON.stringify(
+    Object.fromEntries(
+      Array.from(photosByKey.entries()).map(([key, list]) => [
+        key,
+        list.map((p) => ({ url: p.publicUrl, title: p.title, caption: p.caption })),
+      ])
+    )
+  )}></script>
+  <script id="supabaseConfig" type="application/json" set:html={JSON.stringify({ url: supabaseUrl, anonKey: supabaseAnonKey })}></script>
+
+  {canCreate && (
+    <script>
+      import { uploadImageFile } from "../lib/upload-browser";
+
+      const form = document.getElementById("recForm") as HTMLFormElement | null;
+      const status = document.getElementById("recFormStatus");
+      if (form) {
+        const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const recordOn = (form.querySelector('input[name="record_on"]') as HTMLInputElement | null)?.value.trim() || "";
+          const mood = (form.querySelector('input[name="mood"]') as HTMLInputElement | null)?.value.trim() || "happy";
+          const body = (form.querySelector('textarea[name="body"]') as HTMLTextAreaElement | null)?.value.trim() || "";
+          const fileInput = form.querySelector('input[name="photos"]') as HTMLInputElement | null;
+          const files = Array.from(fileInput?.files || []).filter((f) => f.type.startsWith("image/"));
+
+          if (submitBtn) submitBtn.disabled = true;
+
+          try {
+            const photos = [];
+            for (let i = 0; i < files.length; i++) {
+              if (status) status.textContent = `Uploading photo ${i + 1} of ${files.length}…`;
+              photos.push(await uploadImageFile(files[i]));
+            }
+            if (status) status.textContent = "Saving…";
+            const res = await fetch("/api/records/create", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ record_on: recordOn, mood, body, photos }),
+            });
+            if (!res.ok) {
+              const data = await res.json().catch(() => ({}));
+              throw new Error(data.error || "Could not save the record.");
+            }
+            window.location.href = "/records?created=record";
+          } catch (err) {
+            if (status) status.textContent = err instanceof Error ? err.message : "Save failed.";
+            if (submitBtn) submitBtn.disabled = false;
+          }
+        });
+      }
+    </script>
+  )}
+
+  <Fragment slot="scripts">
+    <script is:inline>
+      (function () {
+        "use strict";
+        var photoMap = {};
+        try { photoMap = JSON.parse(document.getElementById("photoData").textContent || "{}"); } catch (e) {}
+
+        // 筛选
+        var filterEl = document.getElementById("recFilter");
+        var timelineEl = document.getElementById("recTimeline");
+        var filterWho = "all";
+        function applyFilter() {
+          var days = timelineEl.querySelectorAll(".rec-day");
+          days.forEach(function (day) {
+            var notes = day.querySelectorAll(".note");
+            var visible = 0;
+            notes.forEach(function (n) {
+              var who = n.getAttribute("data-who");
+              var show = filterWho === "all" || who === filterWho;
+              n.style.display = show ? "" : "none";
+              if (show) visible += 1;
+            });
+            day.style.display = visible ? "" : "none";
+            var count = day.querySelector(".rec-day__count");
+            if (count) count.textContent = visible + " items";
+          });
+        }
+        if (filterEl) {
+          filterEl.addEventListener("click", function (ev) {
+            var btn = ev.target.closest(".rec-filter__btn");
+            if (!btn) return;
+            filterWho = btn.getAttribute("data-who");
+            filterEl.querySelectorAll(".rec-filter__btn").forEach(function (b) {
+              b.classList.toggle("is-active", b === btn);
+            });
+            applyFilter();
+          });
+        }
+
+        // 便签展开
+        document.querySelectorAll(".note__card").forEach(function (card) {
+          var note = card.closest(".note");
+          var hint = card.querySelector(".note__hint");
+          function toggle() {
+            var open = note.classList.toggle("is-open");
+            card.setAttribute("aria-expanded", String(open));
+            if (hint) hint.textContent = open ? "Click to collapse ▴" : "Click to expand ▾";
+          }
+          card.addEventListener("click", function (ev) {
+            if (
+              ev.target.closest(".note__photo") ||
+              ev.target.closest(".note-delete") ||
+              ev.target.closest(".cmt-section")
+            ) return;
+            toggle();
+          });
+          card.addEventListener("keydown", function (ev) {
+            if (ev.target !== card) return;
+            if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); }
+          });
+        });
+
+        // 灯箱
+        var lbEl = document.getElementById("recLb");
+        var lbImg = document.getElementById("recLbImg");
+        var lbPrev = document.getElementById("recLbPrev");
+        var lbNext = document.getElementById("recLbNext");
+        var lbList = [];
+        var lbIndex = 0;
+
+        function showLb() {
+          var p = lbList[lbIndex];
+          if (!p) return;
+          lbImg.src = p.url;
+        }
+        function openLb(list, idx) {
+          lbList = list;
+          lbIndex = idx;
+          var many = list.length > 1;
+          lbPrev.style.display = many ? "" : "none";
+          lbNext.style.display = many ? "" : "none";
+          showLb();
+          lbEl.classList.remove("is-hidden");
+          document.addEventListener("keydown", lbKey);
+        }
+        function closeLb() {
+          lbEl.classList.add("is-hidden");
+          document.removeEventListener("keydown", lbKey);
+        }
+        function lbStep(d) {
+          if (lbList.length < 2) return;
+          lbIndex = (lbIndex + d + lbList.length) % lbList.length;
+          showLb();
+        }
+        function lbKey(e) {
+          if (e.key === "Escape") closeLb();
+          else if (e.key === "ArrowLeft") lbStep(-1);
+          else if (e.key === "ArrowRight") lbStep(1);
+        }
+        document.querySelectorAll(".note__photo").forEach(function (btn) {
+          btn.addEventListener("click", function (ev) {
+            ev.stopPropagation();
+            var key = btn.getAttribute("data-lb-group");
+            var idx = parseInt(btn.getAttribute("data-lb-index") || "0", 10);
+            var list = photoMap[key] || [];
+            if (list.length) openLb(list, idx);
+          });
+        });
+        if (document.getElementById("recLbClose")) {
+          document.getElementById("recLbClose").addEventListener("click", closeLb);
+          lbPrev.addEventListener("click", function () { lbStep(-1); });
+          lbNext.addEventListener("click", function () { lbStep(1); });
+          lbEl.addEventListener("click", function (e) { if (e.target === lbEl) closeLb(); });
+        }
+
+        // 表单交互
+        var addToggle = document.getElementById("recAddToggle");
+        var formEl = document.getElementById("recForm");
+        var moodsEl = document.getElementById("recMoods");
+        var moodInput = document.getElementById("recMoodInput");
+        var photosEl = document.getElementById("recPhotos");
+        var photoHint = document.getElementById("recPhotoHint");
+        var cancelBtn = document.getElementById("recCancel");
+
+        function setFormOpen(open) {
+          if (!formEl || !addToggle) return;
+          formEl.classList.toggle("is-hidden", !open);
+          addToggle.setAttribute("aria-expanded", open ? "true" : "false");
+          addToggle.textContent = open ? "Close form" : "＋ Add record";
+        }
+        if (addToggle && formEl) {
+          addToggle.addEventListener("click", function () {
+            setFormOpen(formEl.classList.contains("is-hidden"));
+          });
+        }
+        if (cancelBtn) {
+          cancelBtn.addEventListener("click", function () { setFormOpen(false); });
+        }
+        if (moodsEl && moodInput) {
+          moodsEl.addEventListener("click", function (ev) {
+            var btn = ev.target.closest(".rec-mood");
+            if (!btn) return;
+            moodsEl.querySelectorAll(".rec-mood").forEach(function (b) {
+              b.classList.toggle("is-active", b === btn);
+            });
+            moodInput.value = btn.getAttribute("data-mood");
+          });
+        }
+        if (photosEl && photoHint) {
+          photosEl.addEventListener("change", function () {
+            var count = photosEl.files ? photosEl.files.length : 0;
+            photoHint.textContent = count ? ("Selected " + count + " photos. They will also appear in Photos.") : "Photos will also appear in Photos.";
+          });
+        }
+      })();
+    </script>
+  </Fragment>
+</PrototypeLayout>

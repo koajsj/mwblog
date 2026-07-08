@@ -1,0 +1,132 @@
+---
+import PrototypeLayout from "../layouts/PrototypeLayout.astro";
+import { createServiceClient } from "../lib/supabase";
+import { authorDisplayName } from "../lib/author-display";
+import type { AuthorKey, Place, PlaceTone } from "../lib/types";
+
+const supabase = createServiceClient();
+const user = Astro.locals.user;
+
+const { data } = await supabase
+  .from("places")
+  .select("id,owner_id,name,note,tone,created_at,updated_at,profiles(display_name,author_key)")
+  .order("created_at", { ascending: false });
+
+const places = (data || []) as Place[];
+
+const noticeError = Astro.url.searchParams.get("error");
+const created = Astro.url.searchParams.get("created");
+const deleted = Astro.url.searchParams.get("deleted");
+---
+
+<PrototypeLayout title="Places · Our Nest" current="places" bgClass="pl-bg" backHref="/?skipCover=1#home">
+  <Fragment slot="head">
+    <link rel="stylesheet" href="/styles/places.css" />
+  </Fragment>
+
+  <main class="places-main">
+    <section class="places-hero" aria-labelledby="placesTitle">
+      <p class="places-kicker">This year, together</p>
+      <h1 id="placesTitle">Places We Want to Visit</h1>
+      <p class="places-lead">A soft list of cities, coastlines, forests, and little roads to visit when the day arrives.</p>
+      <div class="places-actions">
+        <p class="places-count" id="placeCount">{places.length} destinations</p>
+        {user ? (
+          <button class="places-toggle" id="placeToggle" type="button" aria-expanded="false" aria-controls="placeForm">
+            Add place
+          </button>
+        ) : (
+          <a class="places-toggle" href="/auth/login">Log in to add</a>
+        )}
+      </div>
+      {noticeError && <p style="margin-top:14px;color:#9d3f3f;background:rgba(255,242,242,.8);padding:10px 14px;border-radius:12px;display:inline-block;">{noticeError}</p>}
+      {created === "place" && <p style="margin-top:14px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Place saved.</p>}
+      {deleted === "place" && <p style="margin-top:14px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Place deleted.</p>}
+    </section>
+
+    {user && (
+      <form class="place-form is-hidden" id="placeForm" action="/api/places/create" method="post">
+        <input type="hidden" name="return_to" value="/places" />
+        <label>
+          <span>Place</span>
+          <input name="name" id="placeName" type="text" maxlength="32" placeholder="For example: Kyoto" required />
+        </label>
+        <label>
+          <span>Why go there</span>
+          <textarea name="note" id="placeNote" rows="3" maxlength="140" placeholder="Write one small thing you want to see or do there." required></textarea>
+        </label>
+        <label>
+          <span>Tone</span>
+          <select name="tone" id="placeTone">
+            <option value="night">Starlight</option>
+            <option value="desert">Sunset</option>
+            <option value="forest">Forest</option>
+            <option value="sea">Seaside</option>
+          </select>
+        </label>
+        <div class="place-form__actions">
+          <button class="place-form__cancel" id="placeCancel" type="button">Cancel</button>
+          <button class="place-form__save" type="submit">Save place</button>
+        </div>
+      </form>
+    )}
+
+    <section class="place-stage" id="placeList" aria-label="Places we want to visit" aria-live="polite">
+      {places.length ? places.map((place) => {
+        const tone = (place.tone || "night") as PlaceTone;
+        const author = (place.profiles?.author_key || "white") as AuthorKey;
+        const isOwner = user?.id === place.owner_id;
+        return (
+          <article class={`place-card place-card--${tone}`} tabindex="0">
+            <div class="place-card__art">
+              <span class={tone === "night" ? "place-card__moon" : "place-card__sun"}></span>
+              <span class="place-card__land"></span>
+            </div>
+            <div class="place-card__content">
+              <h3 class="place-card__name">{place.name}</h3>
+              <p class="place-card__note">{place.note}</p>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:8px;">
+                <small style="color:#7a8aa0;font-size:12px;font-weight: 650;">Added by {authorDisplayName(place.profiles, author)}</small>
+                {isOwner && (
+                  <form action="/api/places/delete" method="post" data-confirm={`Delete "${place.name}"?`} data-confirm-title="Delete place?" style="display:inline;">
+                    <input type="hidden" name="return_to" value="/places" />
+                    <input type="hidden" name="id" value={place.id} />
+                    <button type="submit" style="border:none;background:rgba(255,255,255,.6);padding:6px 11px;border-radius:999px;font-size:12px;font-weight: 650;color:#9d3f3f;cursor:pointer;">Delete</button>
+                  </form>
+                )}
+              </div>
+            </div>
+          </article>
+        );
+      }) : (
+        <article style="grid-column:1/-1;text-align:center;padding:60px 18px;color:#7a8aa0;">No places yet. Add the first one above.</article>
+      )}
+    </section>
+  </main>
+
+  <Fragment slot="scripts">
+    <script is:inline>
+      (function () {
+        "use strict";
+        var toggle = document.getElementById("placeToggle");
+        var form = document.getElementById("placeForm");
+        var cancel = document.getElementById("placeCancel");
+        var name = document.getElementById("placeName");
+        function setOpen(open) {
+          if (!toggle || !form) return;
+          form.classList.toggle("is-hidden", !open);
+          toggle.setAttribute("aria-expanded", open ? "true" : "false");
+          toggle.textContent = open ? "Close form" : "Add place";
+          if (open && name) name.focus();
+        }
+        if (toggle && form) {
+          toggle.addEventListener("click", function () {
+            setOpen(form.classList.contains("is-hidden"));
+          });
+        }
+        if (cancel) cancel.addEventListener("click", function () { setOpen(false); });
+
+      })();
+    </script>
+  </Fragment>
+</PrototypeLayout>

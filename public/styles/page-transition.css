@@ -1,0 +1,299 @@
+/* ============================================================
+   全站页面跳转动画
+   当前页文字向上收缩淡出；新页面文字从上方下落淡入。
+   ============================================================ */
+
+/* ============================================================
+   全站统一导航栏
+   顶部全宽，滚动后渐进收缩为浮动胶囊，继续下滚隐藏。
+   ============================================================ */
+
+.site-nav {
+  --site-nav-progress: 0;
+  --site-nav-width: 100vw;
+  --site-nav-top: 0px;
+  --site-nav-pad-x: 70px;
+  --site-nav-height: 76px;
+  --site-nav-gap: 0px;
+  position: fixed !important;
+  top: var(--site-nav-top) !important;
+  left: calc((100vw - var(--site-nav-width)) / 2) !important;
+  right: auto !important;
+  z-index: 35 !important;
+  width: var(--site-nav-width) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block !important;
+  pointer-events: none !important;
+  opacity: 1;
+  transition:
+    left 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    top 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.42s ease-in-out,
+    filter 0.42s ease-in-out;
+  will-change: top, left, width, opacity, transform;
+}
+
+.site-nav::before {
+  content: none !important;
+}
+
+.site-nav.is-nav-hidden {
+  top: calc(var(--site-nav-top) - 92px) !important;
+  opacity: 0;
+}
+
+.site-nav__bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--site-nav-gap);
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--site-nav-height);
+  padding: 0 var(--site-nav-pad-x);
+  border: 1px solid rgba(188, 203, 215, calc(0.88 * var(--site-nav-progress)));
+  border-radius: calc(18px * var(--site-nav-progress));
+  background: rgba(255, 255, 255, calc(0.96 * var(--site-nav-progress)));
+  box-shadow: 0 calc(6px * var(--site-nav-progress)) calc(18px * var(--site-nav-progress)) rgba(43, 62, 79, calc(0.14 * var(--site-nav-progress)));
+  -webkit-backdrop-filter: blur(calc(5px * var(--site-nav-progress)));
+          backdrop-filter: blur(calc(5px * var(--site-nav-progress)));
+  pointer-events: auto;
+  transition:
+    height 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    padding 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    gap 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.2s ease,
+    border-radius 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.2s ease,
+    box-shadow 0.28s ease,
+    backdrop-filter 0.28s ease;
+}
+
+.site-nav__brand,
+.site-nav__links a {
+  color: #263d51 !important;
+  text-decoration: none !important;
+}
+
+.site-nav__brand {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
+  font-size: 23px !important;
+  line-height: 1.2;
+  font-weight: 600 !important;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.site-nav__links {
+  position: relative;
+  z-index: 2;
+  flex: 0 1 auto;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(14px, 1.7vw, 28px) !important;
+  min-width: 0;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+          backdrop-filter: none !important;
+}
+
+.site-nav__links a {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-size: 15px !important;
+  line-height: 1.2;
+  font-weight: 650 !important;
+  letter-spacing: 0;
+  opacity: 0.82;
+  transform: translateY(0);
+  transition:
+    opacity 0.22s ease-in-out,
+    color 0.22s ease-in-out,
+    transform 0.22s ease-in-out;
+}
+
+.site-nav__links a:hover,
+.site-nav__links a.is-active,
+.site-nav__links a[aria-current="page"] {
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.site-nav__links a.is-active,
+.site-nav__links a[aria-current="page"] {
+  color: #3f5a72 !important;
+}
+
+/* ---- 滑动指示器：hover 切换 tab 时平滑滑过来 + 切换颜色 ----
+   一根独立的浮动小条，绝对定位在 .site-nav__links 里，JS 在
+   mouseenter 时把目标 a 的 offsetLeft / offsetWidth 写入。
+   .is-snap 模式只过渡 background-color，给滚动 / 缩放期间的
+   重新定位用，避免位置过渡跟着抖。 */
+.site-nav__indicator {
+  position: absolute;
+  bottom: -6px;
+  left: 0;
+  width: 0;
+  height: 4px;
+  border-radius: 999px;
+  background: #7aa6d4;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: 0 2px 8px rgba(70, 80, 110, 0.22);
+  transition:
+    left 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.32s ease,
+    opacity 0.3s ease;
+  z-index: 0;
+}
+.site-nav__indicator.is-snap {
+  transition: background-color 0.32s ease, opacity 0.3s ease;
+}
+.site-nav__pet {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  font-size: 13px;
+  line-height: 1;
+  /* 略向下偏移，让小角色「踩」在指示条顶端 */
+  transform: translate(-50%, 7px);
+  pointer-events: none;
+  -webkit-user-select: none;
+          user-select: none;
+  filter: drop-shadow(0 1px 1px rgba(40, 50, 70, 0.18));
+}
+/* 导航整条隐藏时，指示器也透明 */
+.site-nav.is-nav-hidden .site-nav__indicator { opacity: 0 !important; }
+
+@media (max-width: 680px) {
+  .site-nav__indicator { bottom: -4px; height: 3px; }
+  .site-nav__pet      { font-size: 11px; transform: translate(-50%, 6px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-nav__indicator { transition: opacity 0.2s ease; }
+}
+
+@media (max-width: 680px) {
+  .site-nav__bar {
+    gap: 14px;
+  }
+
+  .site-nav__brand {
+    font-size: 18px !important;
+  }
+
+  .site-nav__links {
+    flex: 1 1 auto;
+    justify-content: flex-start;
+    gap: 16px !important;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .site-nav__links::-webkit-scrollbar {
+    display: none;
+  }
+
+  .site-nav__links a {
+    font-size: 13px !important;
+  }
+}
+
+/* 进入页前先把主体隐藏：每个目标页 <head> 顶部内联脚本会
+   立刻给 <html> 加 .pt-loading，首次绘制时就是隐藏态。
+   page-transition.js 的 enter() 一次性切到 .pt-ready+.pt-entered
+   并移除 .pt-loading，浏览器对比前后两态后会触发 0.72s 过渡。
+   不依赖 .pt-page-piece（由 JS 异步加），直接按元素类名命中。 */
+.pt-loading .site-nav,
+.pt-loading .home-profile,
+.pt-loading .rec-back, .pt-loading .rec-main,
+.pt-loading .pw-back,  .pt-loading .pw-main,
+.pt-loading .places-main,
+.pt-loading .bi-top,   .pt-loading .bi-shell,
+.pt-loading .blog-top, .pt-loading .blog-tags, .pt-loading .blog-shell,
+.pt-loading .act-top,  .pt-loading .act-shell {
+  opacity: 0;
+  transform: translateY(-34px);
+  filter: blur(8px);
+}
+
+.pt-ready .pt-page-piece {
+  opacity: 0;
+  transform: translateY(-34px);
+  filter: blur(8px);
+  transition:
+    opacity 0.72s ease-out,
+    transform 0.72s ease-out,
+    filter 0.72s ease-out;
+  will-change: opacity, transform, filter;
+}
+
+.pt-ready .site-nav.pt-page-piece {
+  transition:
+    left 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    top 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.42s ease-in-out,
+    transform 0.72s ease-out,
+    filter 0.72s ease-out;
+}
+
+.pt-ready.pt-entered .pt-page-piece {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+.pt-ready.pt-entered .site-nav.is-nav-hidden {
+  animation: none !important;
+  opacity: 0 !important;
+}
+
+.pt-ready.pt-leaving .pt-page-piece {
+  animation: none !important;
+  opacity: 0;
+  transform: translateY(-58px) scale(0.94);
+  filter: blur(10px);
+  transition:
+    opacity 0.22s ease-out,
+    transform 0.22s ease-out,
+    filter 0.22s ease-out;
+}
+
+.pt-ready.pt-leaving {
+  cursor: progress;
+}
+
+.pt-ready.pt-leaving a,
+.pt-ready.pt-leaving button {
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-nav,
+  .site-nav__bar,
+  .site-nav__links a {
+    transition: none !important;
+  }
+
+  .pt-ready .pt-page-piece {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    transition: none !important;
+  }
+}

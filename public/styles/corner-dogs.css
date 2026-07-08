@@ -1,0 +1,188 @@
+/* ============================================================
+   我们的小窝 — 页面角落陪伴小狗
+   静态待机、随机说话、按钮联动、点击后播放 GIF 动作
+   ============================================================ */
+
+.corner-dogs {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 18;
+  pointer-events: none;
+}
+
+.corner-dog {
+  position: fixed;
+  bottom: 14px;
+  width: var(--dog-size, 118px);
+  height: var(--dog-size, 118px);
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  transform:
+    translateY(0);
+  transform-origin: center bottom;
+  transition: transform 0.18s ease;
+}
+
+.corner-dog:hover {
+  transform:
+    translateY(-4px);
+}
+
+.corner-dog:active {
+  transform:
+    translateY(0)
+    scale(0.96);
+}
+
+.corner-dog--white {
+  left: 16px;
+  --dog-size: 98px;
+}
+
+.corner-dog--brown {
+  right: 16px;
+  --dog-size: 116px;
+}
+
+.corner-dog__shadow {
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: 4px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(70, 55, 45, 0.18);
+  filter: blur(6px);
+}
+
+.corner-dog__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  transform-origin: center bottom;
+  filter: drop-shadow(0 8px 14px rgba(70, 80, 110, 0.16));
+}
+
+.corner-dog.is-playing .corner-dog__img {
+  filter: drop-shadow(0 12px 20px rgba(70, 80, 110, 0.22));
+}
+
+.corner-dog__gaze {
+  position: absolute;
+  left: 36%;
+  top: 57%;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #2f3140;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+  transform:
+    translate(calc(var(--look-x, 0) * 3px), calc(var(--look-y, 0) * 2px));
+  transition: transform 0.12s ease;
+}
+
+.corner-dog.is-playing .corner-dog__gaze {
+  opacity: 0;
+}
+
+.corner-dog__bubble {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 8px);
+  max-width: min(260px, 46vw);
+  min-width: 86px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255,255,255,0.7);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #586a7d;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+  opacity: 0;
+  transform: translate(-50%, 8px) scale(0.94);
+  box-shadow: 0 12px 28px rgba(70, 80, 110, 0.16);
+  -webkit-backdrop-filter: blur(14px);
+          backdrop-filter: blur(14px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  white-space: normal;
+  pointer-events: none;
+}
+
+.corner-dog__bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 12px;
+  height: 12px;
+  background: rgba(255,255,255,0.86);
+  border-right: 1px solid rgba(255,255,255,0.7);
+  border-bottom: 1px solid rgba(255,255,255,0.7);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.corner-dog.is-speaking .corner-dog__bubble {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.corner-dog--white .corner-dog__bubble {
+  left: 0;
+  transform: translate(0, 8px) scale(0.94);
+}
+
+.corner-dog--white.is-speaking .corner-dog__bubble {
+  transform: translate(0, 0) scale(1);
+}
+
+.corner-dog--brown .corner-dog__bubble {
+  left: auto;
+  right: 0;
+  transform: translate(0, 8px) scale(0.94);
+}
+
+.corner-dog--brown.is-speaking .corner-dog__bubble {
+  transform: translate(0, 0) scale(1);
+}
+
+.corner-dog--white .corner-dog__bubble::after {
+  left: 28px;
+}
+
+.corner-dog--brown .corner-dog__bubble::after {
+  left: auto;
+  right: 28px;
+}
+
+@media (max-width: 620px) {
+  .corner-dog {
+    bottom: 8px;
+  }
+  .corner-dog--white {
+    left: 8px;
+    --dog-size: 72px;
+  }
+  .corner-dog--brown {
+    right: 8px;
+    --dog-size: 86px;
+  }
+  .corner-dog__bubble {
+    max-width: min(210px, 58vw);
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .corner-dog {
+    transition: none;
+    transform: none !important;
+  }
+}

@@ -1,0 +1,341 @@
+---
+import PrototypeLayout from "../layouts/PrototypeLayout.astro";
+import { createServiceClient } from "../lib/supabase";
+import { attachSignedPhotoUrls } from "../lib/storage";
+import { markdownToPlainText } from "../lib/markdown";
+import { AUTHOR_LABELS } from "../lib/types";
+import type { AuthorKey, BlogPost, Photo, Place, PlaceTone, Profile } from "../lib/types";
+
+const user = Astro.locals.user;
+const profile = Astro.locals.profile;
+const authorKey = (profile?.author_key || "white") as AuthorKey;
+
+const supabase = createServiceClient();
+
+const [{ data: posts }, { data: photos }, { data: placeRows }] = await Promise.all([
+  supabase
+    .from("blog_posts")
+    .select("id,slug,title,excerpt,tags,published_at,created_at,profiles(display_name,author_key)")
+    .order("published_at", { ascending: false })
+    .limit(3),
+  supabase
+    .from("photos")
+    .select("id,title,caption,taken_on,storage_path,created_at,profiles(display_name,author_key)")
+    .order("created_at", { ascending: false })
+    .limit(5),
+  supabase
+    .from("places")
+    .select("id,name,note,tone,created_at")
+    .order("created_at", { ascending: false })
+    .limit(3),
+]);
+const dbPlaces = (placeRows || []) as Place[];
+
+const recentPosts = (posts || []) as BlogPost[];
+const recentPhotos = await attachSignedPhotoUrls((photos || []) as Photo[]);
+const displayPhotos = recentPhotos.slice(0, 5);
+// 不论是否登录都拉两个作者的资料 + 已同步的状态，让访客也能看到双方的状态
+const { data: profileRows } = await supabase
+  .from("profiles")
+  .select("id,email,author_key,display_name,weather_text,weather_updated_at,weather_lat,weather_lng,weather_label,mood_text,mood_date,doing_text,doing_date,created_at")
+  .in("author_key", ["white", "brown"]);
+const homeProfiles = (profileRows || []) as Profile[];
+const whiteProfile = homeProfiles.find((p) => p.author_key === "white");
+const brownProfile = homeProfiles.find((p) => p.author_key === "brown");
+const whiteDisplayName = whiteProfile?.display_name || "White";
+const brownDisplayName = brownProfile?.display_name || "Brown";
+const whiteWeather = whiteProfile?.weather_text || "";
+const brownWeather = brownProfile?.weather_text || "";
+const currentWeatherWho = user ? profile?.author_key || "" : "";
+
+// mood / doing 当日才有效，过期就回到默认占位
+const todayKey = (() => {
+  const d = new Date();
+  const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+})();
+const todayField = (p: Profile | undefined, field: "mood" | "doing") => {
+  if (!p) return "";
+  const date = field === "mood" ? p.mood_date : p.doing_date;
+  const text = field === "mood" ? p.mood_text : p.doing_text;
+  return date === todayKey && text ? text : "";
+};
+const whiteMoodDefault = "Softly happy";
+const brownMoodDefault = "Full of energy";
+const whiteDoingDefault = "Sorting today's small notes";
+const brownDoingDefault = "Planning the next outing";
+const whiteMood = todayField(whiteProfile, "mood") || whiteMoodDefault;
+const brownMood = todayField(brownProfile, "mood") || brownMoodDefault;
+const whiteDoing = todayField(whiteProfile, "doing") || whiteDoingDefault;
+const brownDoing = todayField(brownProfile, "doing") || brownDoingDefault;
+
+// 只能编辑自己那一侧；未登录则双方都不可编辑
+const canEditWhite = currentWeatherWho === "white";
+const canEditBrown = currentWeatherWho === "brown";
+const displayPostTitle = (post: BlogPost) => markdownToPlainText(post.title || "") || post.title;
+
+const skipCoverOnLoad = Astro.url.searchParams.get("skipCover") === "1";
+const homePlaces = dbPlaces.map((p) => ({ name: p.name, note: p.note, tone: p.tone as PlaceTone }));
+const formatPostDate = (date: string) => new Date(date).toLocaleDateString("zh-CN").replaceAll("/", ".");
+---
+
+<PrototypeLayout
+  title="Our Nest"
+  current="home"
+  htmlClass="home-profile-root"
+  bodyClass={skipCoverOnLoad ? "home-profile-page home-revealed" : "home-profile-page home-cover-open"}
+  hideNav
+>
+  <Fragment slot="head">
+    <link rel="stylesheet" href="/styles/styles.css" />
+    <script is:inline>
+      (function () {
+        try {
+          var params = new URLSearchParams(location.search);
+          var hash = (location.hash || "").toLowerCase();
+          var skipHome =
+            params.get("skipCover") === "1" ||
+            hash === "#home" ||
+            hash === "#main" ||
+            hash === "#skipcover";
+          if (skipHome || localStorage.getItem("cuteblog.discoveryIntro.v1") === "1") {
+            document.documentElement.classList.add("home-intro-seen");
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </Fragment>
+
+  <section class="home-discovery" id="homeDiscoveryIntro" aria-label="A quiet note before entering">
+    <div class="home-discovery__mist" aria-hidden="true"></div>
+    <div class="home-discovery__content" aria-live="polite">
+      <p class="home-discovery__line" id="discoveryLineOne"></p>
+      <p class="home-discovery__line" id="discoveryLineTwo"></p>
+    </div>
+  </section>
+
+  <section class="home-cover" id="homeCover" aria-label="Home cover">
+    <img class="home-cover__bg" src="/assets/首页封面.webp" alt="" />
+    <canvas class="home-cover__petals" id="coverPetals" aria-hidden="true"></canvas>
+    <div class="home-cover__shade" aria-hidden="true"></div>
+    <div class="home-cover__content">
+      <p class="home-cover__eyebrow">Our Nest</p>
+      <h1 class="home-cover__title">Welcome to our home</h1>
+    </div>
+    <button class="home-cover__button" id="exploreHome" type="button" aria-label="Start now">
+      <span class="home-cover__button-text home-cover__button-text--top">Explore</span>
+      <span class="home-cover__button-text home-cover__button-text--bottom">Start now</span>
+    </button>
+  </section>
+
+  <div class="home-bg" aria-hidden="true">
+    <div class="home-bg__layer" id="homeBg"></div>
+    <div class="home-bg__wash"></div>
+  </div>
+
+  <header class="site-nav home-nav" data-site-nav>
+    <div class="site-nav__bar">
+      <a class="site-nav__brand home-nav__brand" href="/?skipCover=1#home">Our Nest</a>
+      <nav class="site-nav__links home-nav__links" aria-label="Home navigation">
+        <a class="is-active" href="/?skipCover=1#home" aria-current="page">Home</a>
+        <a href="/places">Places</a>
+        <a href="/blog">Blog</a>
+        <a href="/records">Records</a>
+        <a href="/photos">Photos</a>
+        <a href="/activity">Activity</a>
+        <a href="/todo">To Do</a>
+        {!user && (
+          <a class="site-nav__auth-link" href="/auth/login">Log in</a>
+        )}
+      </nav>
+      {user && (
+        <div class="site-nav__auth">
+          <form action="/api/auth/logout" method="post">
+            <span class={`auth-pill auth-pill--${authorKey}`} title={profile?.display_name || AUTHOR_LABELS[authorKey]}>{profile?.display_name || AUTHOR_LABELS[authorKey]}</span>
+            <button class="auth-link" type="submit" aria-label="Log out">Log out</button>
+          </form>
+        </div>
+      )}
+    </div>
+  </header>
+
+  <main class="home-profile" id="home" data-current-weather-who={currentWeatherWho}>
+    <section class="home-hero" aria-labelledby="homeTitle">
+      <div class="home-avatar" aria-hidden="true">
+        <img class="home-avatar__img" src="/assets/首页头像.webp" alt="" />
+      </div>
+      <p class="home-kicker">Two little dogs, one little home</p>
+      <h1 id="homeTitle">Our Nest</h1>
+
+      <div class="home-duo-status" aria-label="Today status">
+        <article class="home-status home-status--white">
+          <img class="home-status__dog" src="/assets/小白首页形象.webp" alt={`${whiteDisplayName} avatar`} />
+          <div class="home-status__info">
+            <h2 data-status-name="white">{whiteDisplayName}</h2>
+            <dl>
+              <div>
+                <dt>Local weather</dt>
+                <dd
+                  id="whiteWeather"
+                  data-server-weather={whiteWeather}
+                  data-lat={whiteProfile?.weather_lat ?? ""}
+                  data-lng={whiteProfile?.weather_lng ?? ""}
+                  data-label={whiteProfile?.weather_label ?? ""}
+                  data-updated={whiteProfile?.weather_updated_at ?? ""}
+                >{whiteWeather || "Location pending · Weather pending"}</dd>
+              </div>
+              <div>
+                <dt>Mood</dt>
+                <dd class="home-status__editable">
+                  <span id="whiteMood" data-server-text={whiteMood}>{whiteMood}</span>
+                  {canEditWhite && (
+                    <button class="home-status__edit" type="button" data-who="white" data-field="mood" aria-label={`Edit ${whiteDisplayName}'s mood`}>Edit</button>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Doing</dt>
+                <dd class="home-status__editable">
+                  <span id="whiteDoing" data-server-text={whiteDoing}>{whiteDoing}</span>
+                  {canEditWhite && (
+                    <button class="home-status__edit" type="button" data-who="white" data-field="doing" aria-label={`Edit what ${whiteDisplayName} is doing`}>Edit</button>
+                  )}
+                </dd>
+              </div>
+            </dl>
+            <p class="home-status__quote" id="whiteQuote" data-who="white" role="button" tabindex="0" aria-label={`Refresh ${whiteDisplayName}'s note`}>Keep the little things carefully today.</p>
+          </div>
+        </article>
+
+        <article class="home-status home-status--brown">
+          <div class="home-status__info">
+            <h2 data-status-name="brown">{brownDisplayName}</h2>
+            <dl>
+              <div>
+                <dt>Local weather</dt>
+                <dd
+                  id="brownWeather"
+                  data-server-weather={brownWeather}
+                  data-lat={brownProfile?.weather_lat ?? ""}
+                  data-lng={brownProfile?.weather_lng ?? ""}
+                  data-label={brownProfile?.weather_label ?? ""}
+                  data-updated={brownProfile?.weather_updated_at ?? ""}
+                >{brownWeather || "Location pending · Weather pending"}</dd>
+              </div>
+              <div>
+                <dt>Mood</dt>
+                <dd class="home-status__editable">
+                  <span id="brownMood" data-server-text={brownMood}>{brownMood}</span>
+                  {canEditBrown && (
+                    <button class="home-status__edit" type="button" data-who="brown" data-field="mood" aria-label={`Edit ${brownDisplayName}'s mood`}>Edit</button>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Doing</dt>
+                <dd class="home-status__editable">
+                  <span id="brownDoing" data-server-text={brownDoing}>{brownDoing}</span>
+                  {canEditBrown && (
+                    <button class="home-status__edit" type="button" data-who="brown" data-field="doing" aria-label={`Edit what ${brownDisplayName} is doing`}>Edit</button>
+                  )}
+                </dd>
+              </div>
+            </dl>
+            <p class="home-status__quote" id="brownQuote" data-who="brown" role="button" tabindex="0" aria-label={`Refresh ${brownDisplayName}'s note`}>Write down the places first; the road will appear slowly.</p>
+          </div>
+          <img class="home-status__dog" src="/assets/小棕首页形象.webp" alt={`${brownDisplayName} avatar`} />
+        </article>
+      </div>
+
+      <p class="home-hero__text">
+        A quiet place to write, keep photos, record daily life, and collect the little things that happen across the day.
+      </p>
+    </section>
+
+    <section class="home-posts" aria-labelledby="postsTitle">
+      <h2 id="postsTitle">Posts</h2>
+      <div class="home-post-list">
+        {recentPosts.map((post) => (
+          <a href={`/blog/${post.slug}`}>
+            <time>{formatPostDate(post.published_at || post.created_at)}</time>
+            <span>{displayPostTitle(post)}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+
+    <section class="home-recent-photos" aria-labelledby="recentPhotosTitle">
+      <h2 id="recentPhotosTitle">Recent Photos</h2>
+      <div class="home-photo-stage" id="homeRecentPhotos" aria-live="polite">
+        {displayPhotos.map((photo, index) => (
+          <a class="home-photo-card" style={`--i:${index}`} href="/photos">
+            <img src={photo.publicUrl} alt={photo.title || photo.caption || "Photo"} loading="lazy" />
+            <span class="home-photo-card__meta">
+              <span>{photo.title || "A small photo"}</span>
+              <small>{photo.taken_on || photo.profiles?.display_name || "Nest"}</small>
+            </span>
+          </a>
+        ))}
+      </div>
+    </section>
+
+    <section class="home-places" aria-labelledby="placesTitle">
+      <h2 id="placesTitle">Places</h2>
+      <div class="home-places__body">
+        <div class="home-places__head">
+          <div>
+            <p class="home-places__kicker">Places for this year</p>
+            <p class="home-places__count" id="placeCount">{homePlaces.length} destinations</p>
+          </div>
+          <a class="home-places__toggle" href="/places">View all →</a>
+        </div>
+
+        <div class="place-stage" id="placeList" aria-live="polite">
+          {homePlaces.map((place) => (
+            <article class={`place-card place-card--${place.tone}`} tabindex="0">
+              <div class="place-card__art">
+                <span class={place.tone === "night" ? "place-card__moon" : "place-card__sun"}></span>
+                <span class="place-card__land"></span>
+              </div>
+              <div class="place-card__content">
+                <h3 class="place-card__name">{place.name}</h3>
+                <p class="place-card__note">{place.note}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <div class="status-editor is-hidden" id="statusEditor" role="dialog" aria-modal="true" aria-labelledby="statusEditorTitle">
+    <div class="status-editor__mask" data-status-close></div>
+    <section class="status-editor__card">
+      <button class="status-editor__x" type="button" data-status-close aria-label="Close editor">×</button>
+      <p class="status-editor__kicker" id="statusEditorKicker">Today status</p>
+      <h2 id="statusEditorTitle">Edit status</h2>
+      <p class="status-editor__hint" id="statusEditorHint">Write a short note for today.</p>
+      <label class="status-editor__field">
+        <span id="statusEditorLabel">Status</span>
+        <textarea id="statusEditorInput" maxlength="80" rows="3" placeholder="Type something soft and true."></textarea>
+      </label>
+      <div class="status-editor__meta">
+        <span id="statusEditorCount">0 / 80</span>
+        <span id="statusEditorSync">Saved for today</span>
+      </div>
+      <div class="status-editor__chips" id="statusEditorChips" aria-label="Quick status ideas"></div>
+      <div class="status-editor__actions">
+        <button class="status-editor__clear" id="statusEditorClear" type="button">Use default</button>
+        <span class="status-editor__spacer"></span>
+        <button class="status-editor__cancel" type="button" data-status-close>Cancel</button>
+        <button class="status-editor__save" id="statusEditorSave" type="button">Save</button>
+      </div>
+    </section>
+  </div>
+
+  <Fragment slot="scripts">
+    <script is:inline src="/scripts/cover.js"></script>
+    <script is:inline src="/scripts/home.js"></script>
+  </Fragment>
+</PrototypeLayout>

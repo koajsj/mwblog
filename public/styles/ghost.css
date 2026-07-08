@@ -1,0 +1,390 @@
+/* ============================================================
+   我们的小窝 — 飘浮的小鬼魂装饰（全站共用）
+   原型来自项目根的「一个有趣的鬼魂动画（css+js）」，整体缩到
+   约 65%（91×104px），通过 .cb-ghost 命名空间避免和站内已有
+   .ghost / .star 等通用类名冲突。位置由 ghost.js 用碰撞检测
+   挑空白处放置，CSS 这里只负责样式与动画。
+   ============================================================ */
+
+.cb-ghost {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 24;
+  width: 140px;
+  height: 160px;
+  transform: scale(0.65);
+  transform-origin: top left;
+  opacity: 0;                       /* JS 找好位置后再淡入 */
+  cursor: pointer;
+  outline: none;
+  font-size: 0;
+  -webkit-user-select: none;
+          user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.5s ease;
+}
+
+/* 站内多处 CSS 全局重置成 border-box，但原版鬼魂的头 / 身体靠
+   `padding-top: 100%` / `85%` 撑高度，这种技巧只有 content-box
+   下才生效。这里把鬼魂子树强制还原成 content-box，避免身体崩塌。 */
+.cb-ghost,
+.cb-ghost *,
+.cb-ghost *::before,
+.cb-ghost *::after {
+  box-sizing: content-box;
+}
+
+.cb-ghost.run-away .ghost {
+  transform: rotateX(-10deg) scale3d(1.4, 4, 1) translate3d(0, 130%, -30px);
+  transition: transform 800ms ease;
+}
+
+.cb-ghost.descend .ghost {
+  transform: translate3d(0, 130%, 0);
+}
+
+.cb-ghost .ghost-container {
+  position: relative;
+  width: 80px;
+  height: 140px;
+  padding: 20px 30px 0;
+  overflow: hidden;
+  perspective: 30px;
+}
+
+.cb-ghost .ghost {
+  position: relative;
+  height: 115px;
+  z-index: 1;
+  transition: transform 2000ms ease-out;
+}
+
+.cb-ghost .ghost.hover {
+  animation: cb-ghost-hover 600ms ease-in-out infinite alternate;
+}
+
+.cb-ghost .ghost-head {
+  position: relative;
+  width: 80px;
+  height: 0;
+  padding-top: 100%;
+  border-radius: 100%;
+  background-color: #f0efdc;
+}
+
+.cb-ghost .ghost-face {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  width: 50px;
+  height: 30px;
+  z-index: 1;
+}
+
+.cb-ghost .eyes-row,
+.cb-ghost .mouth-row { position: relative; height: 10px; }
+.cb-ghost .mouth-row { margin-top: 3px; }
+
+.cb-ghost .eye {
+  position: absolute;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  background-color: #271917;
+  border-radius: 100%;
+  transition: height 50ms ease;
+}
+.cb-ghost .eye.left  { left: 5px; }
+.cb-ghost .eye.right { right: 5px; }
+.cb-ghost .eye.blink { height: 0; }
+
+.cb-ghost .mouth {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  height: 10px;
+  transform: translate3d(-50%, 0, 0);
+}
+.cb-ghost .mouth-top {
+  width: 18px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background-color: #271917;
+}
+.cb-ghost .mouth-bottom {
+  position: absolute;
+  bottom: 0;
+  width: 18px;
+  height: 8px;
+  overflow: hidden;
+  transition: height 150ms ease;
+}
+.cb-ghost .mouth-bottom::after {
+  content: "";
+  display: block;
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 18px;
+  height: 16px;
+  border-radius: 100%;
+  background-color: #271917;
+}
+.cb-ghost .mouth.open   .mouth-bottom { height: 16px; }
+.cb-ghost .mouth.closed .mouth-bottom { height: 0; }
+
+.cb-ghost .cheek {
+  position: absolute;
+  top: 0;
+  width: 12px;
+  height: 4px;
+  border-radius: 100%;
+  background-color: #f5c1b6;
+}
+.cb-ghost .cheek.left  { left: 0; }
+.cb-ghost .cheek.right { right: 0; }
+
+.cb-ghost .ghost-body {
+  position: absolute;
+  top: 40px;
+  width: 80px;
+  height: 0;
+  padding-top: 85%;
+  background-color: #f0efdc;
+}
+
+.cb-ghost .ghost-hand {
+  position: absolute;
+  width: 22px;
+  height: 36px;
+  background: #f0efdc;
+  border-radius: 100%/90%;
+}
+.cb-ghost .hand-left {
+  left: 0;
+  top: 5px;
+  transform: rotateZ(-45deg);
+  transform-origin: bottom center;
+}
+.cb-ghost .hand-left.waving {
+  animation: cb-ghost-waving 400ms linear;
+}
+.cb-ghost .hand-right {
+  right: -12px;
+  top: 10px;
+  transform: rotateZ(45deg);
+}
+
+.cb-ghost .ghost-skirt {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  display: flex;
+  transform: translateY(50%);
+}
+.cb-ghost .ghost-skirt .pleat {
+  width: 20%;
+  height: 8px;
+  border-radius: 100%;
+}
+.cb-ghost .ghost-skirt .pleat.down { background-color: #f0efdc; }
+/* 原版这里用深色背景遮出波浪边，本站背景是浅色渐变，
+   做成透明让页面背景透出来即可。 */
+.cb-ghost .ghost-skirt .pleat.up {
+  position: relative;
+  top: 1px;
+  background-color: transparent;
+}
+
+.cb-ghost .shadow-container { transition: transform 800ms ease; }
+.cb-ghost .shadow-container.disappear {
+  transform: scale3d(0, 1, 1);
+  transition: transform 400ms ease;
+}
+.cb-ghost .shadow {
+  position: absolute;
+  top: calc(100% - 4px);
+  left: 0;
+  width: 100%;
+  height: 8px;
+  border-radius: 100%;
+  background-color: rgba(50, 70, 90, 0.22);
+  z-index: -1;
+}
+.cb-ghost .shadow-bottom {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+}
+.cb-ghost .shadow-bottom::after {
+  content: "";
+  display: block;
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 8px;
+  border-radius: 100%;
+  background-color: rgba(50, 70, 90, 0.22);
+  z-index: 2;
+}
+
+.cb-ghost .star {
+  position: absolute;
+  animation: cb-ghost-twinkle 2s infinite linear;
+  transition: top 400ms ease-out, left 400ms ease-out;
+}
+.cb-ghost .star.round  .star-element { width: 9px; height: 9px; border-radius: 100%; }
+.cb-ghost .star.pointy                { transform: rotate(-15deg); }
+.cb-ghost .star.pointy .star-element  { width: 6px; height: 6px; }
+.cb-ghost .star.pointy .star-element::before,
+.cb-ghost .star.pointy .star-element::after {
+  content: "";
+  display: block;
+  position: absolute;
+  border-radius: 6px;
+}
+.cb-ghost .star.pointy .star-element::before {
+  width: 12px;
+  height: 6px;
+  left: -3px;
+  top: 0;
+  transform: skewX(60deg);
+}
+.cb-ghost .star.pointy .star-element::after {
+  width: 6px;
+  height: 12px;
+  right: 0;
+  bottom: -3px;
+  transform: skewY(-60deg);
+}
+.cb-ghost .star.orange .star-element,
+.cb-ghost .star.orange .star-element::before,
+.cb-ghost .star.orange .star-element::after { background-color: #df814d; }
+.cb-ghost .star.yellow .star-element,
+.cb-ghost .star.yellow .star-element::before,
+.cb-ghost .star.yellow .star-element::after { background-color: #ffd186; }
+.cb-ghost .star.blue   .star-element,
+.cb-ghost .star.blue   .star-element::before,
+.cb-ghost .star.blue   .star-element::after { background-color: #83d0bc; }
+
+.cb-ghost .star-1 { top: 130%; left: 40%; transition-delay: 200ms; animation-delay:    0ms; z-index: 2; }
+.cb-ghost .star-2 { top: 130%; left: 44%; transition-delay: 250ms; animation-delay:  200ms; }
+.cb-ghost .star-3 { top: 130%; left: 48%; transition-delay: 300ms; animation-delay:  400ms; z-index: 2; }
+.cb-ghost .star-4 { top: 130%; left: 52%; transition-delay: 350ms; animation-delay:  600ms; }
+.cb-ghost .star-5 { top: 130%; left: 56%; transition-delay: 400ms; animation-delay:  800ms; z-index: 2; }
+.cb-ghost .star-6 { top: 130%; left: 60%; transition-delay: 450ms; animation-delay: 1000ms; }
+
+.cb-ghost.move-stars-out .star-element { animation: cb-ghost-star-entrance 1500ms; }
+.cb-ghost.stars-out .star { transition: top 1500ms ease-out, left 1500ms ease-out; }
+
+.cb-ghost.stars-out .star-1 { top: 75%; left:  6%; transition-delay:    0ms,    0ms; }
+.cb-ghost.stars-out .star-2 { top: 35%; left: 88%; transition-delay:  200ms,  200ms; }
+.cb-ghost.stars-out .star-3 { top:  8%; left: 20%; transition-delay:  400ms,  400ms; }
+.cb-ghost.stars-out .star-4 { top: 70%; left: 92%; transition-delay:  600ms,  600ms; }
+.cb-ghost.stars-out .star-5 { top: 35%; left:  4%; transition-delay:  800ms,  800ms; }
+.cb-ghost.stars-out .star-6 { top:  2%; left: 70%; transition-delay: 1000ms, 1000ms; }
+.cb-ghost.stars-out .star-1 .star-element { animation-delay:    0ms; }
+.cb-ghost.stars-out .star-2 .star-element { animation-delay:  200ms; }
+.cb-ghost.stars-out .star-3 .star-element { animation-delay:  400ms; }
+.cb-ghost.stars-out .star-4 .star-element { animation-delay:  600ms; }
+.cb-ghost.stars-out .star-5 .star-element { animation-delay:  800ms; }
+.cb-ghost.stars-out .star-6 .star-element { animation-delay: 1000ms; }
+
+.cb-ghost.move-stars-in .star-element { animation: cb-ghost-star-exit 400ms linear; }
+.cb-ghost.move-stars-in .star-1 .star-element { animation-delay: 100ms; }
+.cb-ghost.move-stars-in .star-2 .star-element { animation-delay: 150ms; }
+.cb-ghost.move-stars-in .star-3 .star-element { animation-delay: 200ms; }
+.cb-ghost.move-stars-in .star-4 .star-element { animation-delay: 250ms; }
+.cb-ghost.move-stars-in .star-5 .star-element { animation-delay: 300ms; }
+.cb-ghost.move-stars-in .star-6 .star-element { animation-delay: 350ms; }
+
+@keyframes cb-ghost-hover {
+  0%   { top: 0; }
+  100% { top: 8px; }
+}
+@keyframes cb-ghost-star-entrance {
+  0%   { transform: rotate(-735deg) scale(0, 0); }
+  100% { transform: rotate(0)       scale(1, 1); }
+}
+@keyframes cb-ghost-star-exit {
+  0%   { transform: rotate(0)      scale(1, 1); }
+  100% { transform: rotate(360deg) scale(0, 0); }
+}
+@keyframes cb-ghost-twinkle {
+  0%   { transform: rotate(0deg)   scale(1, 1); }
+  25%  { transform: rotate(10deg)  scale(0.8, 0.8); }
+  50%  { transform: rotate(0deg)   scale(0.9, 0.9); }
+  75%  { transform: rotate(-20deg) scale(0.6, 0.6); }
+  100% { transform: rotate(0deg)   scale(1, 1); }
+}
+@keyframes cb-ghost-waving {
+  0%   { transform: rotate(-45deg); }
+  25%  { transform: rotate(-55deg); }
+  50%  { transform: rotate(-45deg); }
+  75%  { transform: rotate(-55deg); }
+  100% { transform: rotate(-45deg); }
+}
+
+/* 跟随全站离场动画一起淡出 */
+html.pt-leaving .cb-ghost {
+  opacity: 0 !important;
+  transform: scale(0.65) translateY(-26px) !important;
+  pointer-events: none !important;
+  transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cb-ghost { display: none; }
+}
+
+/* ---- 鬼魂的说话气泡 ---------------------------------------
+   作为 body 的直接子元素（不放在 .cb-ghost 里，避免被那层
+   transform: scale(0.65) 一起缩小、文字模糊）。位置在 mouseenter
+   时由 JS 算到鬼魂头顶上方。 */
+.cb-ghost__bubble {
+  position: fixed;
+  z-index: 26;
+  padding: 9px 14px;
+  border: 2px solid #f0efdc;
+  border-radius: 16px;
+  background: #ffffff;
+  font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB",
+               "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4a4f5c;
+  line-height: 1.35;
+  white-space: nowrap;
+  max-width: min(72vw, 260px);
+  box-shadow: 0 8px 22px rgba(60, 80, 110, 0.18);
+  opacity: 0;
+  transform: translate(-50%, -100%) scale(0.84);
+  transform-origin: bottom center;
+  pointer-events: none;
+  transition:
+    opacity 0.28s ease,
+    transform 0.34s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.cb-ghost__bubble.is-visible {
+  opacity: 1;
+  transform: translate(-50%, -100%) scale(1);
+}
+.cb-ghost__bubble::after {
+  /* 朝下的小尾巴，指向鬼魂的头 */
+  content: "";
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  background: #ffffff;
+  border-right: 2px solid #f0efdc;
+  border-bottom: 2px solid #f0efdc;
+  transform: translateX(-50%) rotate(45deg);
+}

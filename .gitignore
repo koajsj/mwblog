@@ -1,0 +1,35 @@
+# build output
+dist/
+.vercel/
+
+# generated types
+.astro/
+
+# dependencies
+node_modules/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dev-*.log
+dev-server*.log
+
+# environment variables (绝对不要上传 .env！里面有 Supabase service role key)
+.env
+.env.production
+.env.local
+.env.*.local
+
+# 开发期生成的校验截图
+verification/
+
+# macOS
+.DS_Store
+
+# JetBrains
+.idea/
+
+# VSCode 本地编辑器配置
+.vscode/

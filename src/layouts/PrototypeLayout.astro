@@ -1,0 +1,220 @@
+---
+import { AUTHOR_LABELS } from "../lib/types";
+import type { AuthorKey } from "../lib/types";
+
+interface Props {
+  title: string;
+  description?: string;
+  current?: "home" | "places" | "blog" | "records" | "photos" | "activity" | "todo";
+  bgClass?: string;
+  bodyClass?: string;
+  htmlClass?: string;
+  hideNav?: boolean;
+  backHref?: string;
+  backLabel?: string;
+}
+
+const {
+  title,
+  description = "Our Nest, a shared life blog.",
+  current,
+  bgClass,
+  bodyClass = "",
+  htmlClass = "",
+  hideNav = false,
+  backHref,
+  backLabel = "Back",
+} = Astro.props;
+
+const user = Astro.locals.user;
+const profile = Astro.locals.profile;
+const authorKey = (profile?.author_key || "white") as AuthorKey;
+---
+
+<!DOCTYPE html>
+<html lang="zh-CN" class={htmlClass}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/png" href="/浏览器图标.png" />
+    <script is:inline>document.documentElement.classList.add("pt-loading", "site-loading");</script>
+    <slot name="head" />
+    <link rel="stylesheet" href="/styles/corner-dogs.css" />
+    <link rel="stylesheet" href="/styles/site-font.css" />
+    <link rel="stylesheet" href="/styles/site-loader.css" />
+    <link rel="stylesheet" href="/styles/scroll-reveal.css" />
+    <link rel="stylesheet" href="/styles/page-transition.css" />
+    <link rel="stylesheet" href="/styles/ghost.css" />
+    <link rel="stylesheet" href="/styles/confirm-delete.css" />
+  </head>
+  <body class={bodyClass}>
+    <div class="site-loader" aria-hidden="true">
+      <div class="site-loader__card">
+        <div class="site-loader__moonstep"></div>
+        <p class="site-loader__brand">Our Nest</p>
+      </div>
+    </div>
+
+    {bgClass && (
+      <div class={bgClass} aria-hidden="true">
+        <span class={`${bgClass.replace("-bg", "-cloud")} ${bgClass.replace("-bg", "-cloud")}--1`}></span>
+        <span class={`${bgClass.replace("-bg", "-cloud")} ${bgClass.replace("-bg", "-cloud")}--2`}></span>
+        <span class={`${bgClass.replace("-bg", "-cloud")} ${bgClass.replace("-bg", "-cloud")}--3`}></span>
+      </div>
+    )}
+
+    {backHref && (
+      <a class="site-back-btn" href={backHref} aria-label={backLabel}>← {backLabel}</a>
+    )}
+
+    {!hideNav && (
+      <header class="site-nav" data-site-nav>
+        <div class="site-nav__bar">
+          <a class="site-nav__brand" href="/?skipCover=1#home">Our Nest</a>
+          <nav class="site-nav__links" aria-label="Site navigation">
+            <a class:list={{ "is-active": current === "home" }} href="/?skipCover=1#home" aria-current={current === "home" ? "page" : undefined}>Home</a>
+            <a class:list={{ "is-active": current === "places" }} href="/places" aria-current={current === "places" ? "page" : undefined}>Places</a>
+            <a class:list={{ "is-active": current === "blog" }} href="/blog" aria-current={current === "blog" ? "page" : undefined}>Blog</a>
+            <a class:list={{ "is-active": current === "records" }} href="/records" aria-current={current === "records" ? "page" : undefined}>Records</a>
+            <a class:list={{ "is-active": current === "photos" }} href="/photos" aria-current={current === "photos" ? "page" : undefined}>Photos</a>
+            <a class:list={{ "is-active": current === "activity" }} href="/activity" aria-current={current === "activity" ? "page" : undefined}>Activity</a>
+            <a class:list={{ "is-active": current === "todo" }} href="/todo" aria-current={current === "todo" ? "page" : undefined}>To Do</a>
+            {!user && (
+              <a class="site-nav__auth-link" href="/auth/login">Log in</a>
+            )}
+          </nav>
+          {user && (
+            <div class="site-nav__auth">
+              <form action="/api/auth/logout" method="post">
+                <span class={`auth-pill auth-pill--${authorKey}`} title={profile?.display_name || AUTHOR_LABELS[authorKey]}>{profile?.display_name || AUTHOR_LABELS[authorKey]}</span>
+                <button class="auth-link" type="submit" aria-label="Log out">Log out</button>
+              </form>
+            </div>
+          )}
+        </div>
+      </header>
+    )}
+
+    <slot />
+
+    <script is:inline src="/scripts/corner-dogs.js"></script>
+    <script is:inline src="/scripts/scroll-reveal.js"></script>
+    <script is:inline src="/scripts/ghost.js"></script>
+    <script is:inline src="/scripts/site-prefetch.js"></script>
+    <script is:inline src="/scripts/page-transition.js"></script>
+    <script is:inline src="/scripts/confirm-delete.js"></script>
+    <script is:inline src="/scripts/site-loader.js"></script>
+    <slot name="scripts" />
+  </body>
+</html>
+
+<style is:global>
+  /* 导航链接整体推到右侧，紧挨登录/用户胶囊 */
+  .site-nav__links {
+    margin-left: 0 !important;
+  }
+
+  /* 未登录：登录链接放在 nav__links 里，等同于第 7 个普通链接，
+     这样自动继承字体、悬停指示器（page-transition.js 会扫描所有 a） */
+  .site-nav__links .site-nav__auth-link {
+    /* 留空：父级 .site-nav__links a 已经定义了样式 */
+  }
+
+  /* 已登录：用户胶囊 + 退出按钮，放在 nav__links 右侧，留 24px 间距 */
+  .site-nav__auth {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    margin-left: 0;
+    font-family: "Satoshi", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .site-nav__auth form {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    margin: 0;
+  }
+  /* 用户名 / 退出：和导航栏其他链接一样的纯文字样式，不要圆角框 */
+  .auth-pill {
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+    font-size: 15px;
+    font-weight: 650;
+    line-height: 1.2;
+    max-width: 9em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.92;
+  }
+  /* 保留作者色作为文字色，仍是身份标识 */
+  .auth-pill--white { color: #7aa6d4; }
+  .auth-pill--brown { color: #d49356; }
+  .auth-link {
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    color: #3f5a72;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 650;
+    line-height: 1.2;
+    text-decoration: none;
+    cursor: pointer;
+    opacity: 0.82;
+    transition: opacity .22s ease, transform .22s ease;
+  }
+  .auth-link:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+    background: transparent;
+    box-shadow: none;
+  }
+  @media (max-width: 760px) {
+    .site-nav__auth { margin-left: 0; gap: 10px; }
+    .site-nav__auth form { gap: 10px; }
+    .auth-pill, .auth-link {
+      font-size: 13px;
+    }
+    .auth-pill { max-width: 6em; }
+  }
+
+  .site-back-btn {
+    position: fixed;
+    top: 86px;
+    left: 22px;
+    z-index: 60;
+    padding: 9px 17px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.82);
+    color: #5b6478;
+    font-family: "Satoshi", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+    font-weight: 650;
+    text-decoration: none;
+    box-shadow: 0 8px 20px rgba(70,80,110,.16);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    transition: transform .15s ease, background .2s ease, box-shadow .2s ease;
+  }
+  .site-back-btn:hover {
+    transform: translateY(-2px);
+    background: #fff;
+    box-shadow: 0 12px 26px rgba(70,80,110,.2);
+  }
+  @media (max-width: 760px) {
+    .site-back-btn {
+      top: 74px;
+      left: 12px;
+      padding: 7px 13px;
+      font-size: 12px;
+    }
+  }
+</style>

@@ -1,0 +1,376 @@
+---
+import PrototypeLayout from "../../layouts/PrototypeLayout.astro";
+import { createServiceClient } from "../../lib/supabase";
+import { authorDisplayName, makeAuthorNames } from "../../lib/author-display";
+import { estimatedReadMinutes, markdownToPlainText } from "../../lib/markdown";
+import { shanghaiParts } from "../../lib/datetime";
+import type { AuthorKey, BlogPost } from "../../lib/types";
+
+const supabase = createServiceClient();
+const [{ data }, { data: authorRows }] = await Promise.all([
+  supabase
+    .from("blog_posts")
+    .select("id,slug,title,excerpt,content_markdown,tags,published_at,created_at,profiles(display_name,author_key)")
+    .order("published_at", { ascending: false }),
+  supabase.from("profiles").select("author_key,display_name"),
+]);
+
+const posts = (data || []) as BlogPost[];
+const authorNames = makeAuthorNames(authorRows || []);
+const user = Astro.locals.user;
+const noticeError = Astro.url.searchParams.get("error");
+const deleted = Astro.url.searchParams.get("deleted");
+
+const allTagsSet = new Set<string>();
+posts.forEach((post) => (post.tags || []).forEach((tag) => allTagsSet.add(tag)));
+const allTags = Array.from(allTagsSet);
+
+function authorEmoji(key: AuthorKey) {
+  return key === "white" ? "🐶" : "🐕";
+}
+
+function readMinutes(post: BlogPost) {
+  return estimatedReadMinutes(post.content_markdown || "");
+}
+
+function displayPostTitle(post: BlogPost) {
+  return markdownToPlainText(post.title || "") || post.title;
+}
+
+function displayPostExcerpt(post: BlogPost) {
+  return markdownToPlainText(post.excerpt || "") || "Open it to read the full post.";
+}
+
+function formatDate(value: string) {
+  const p = shanghaiParts(value);
+  if (!p) return "";
+  return `${p.year}.${p.month}.${p.day} ${p.hour}:${p.minute}`;
+}
+
+function postYear(post: BlogPost) {
+  const value = post.published_at || post.created_at;
+  const p = shanghaiParts(value);
+  return p ? Number(p.year) : new Date().getFullYear();
+}
+
+const currentYear = posts.length ? postYear(posts[0]) : new Date().getFullYear();
+---
+
+<PrototypeLayout title="Blog · Our Nest" current="blog" bgClass="bi-bg" backHref="/?skipCover=1#home">
+  <Fragment slot="head">
+    <link rel="stylesheet" href="/styles/blog-index.css" />
+  </Fragment>
+
+  <main class="bi-shell">
+    <section class="bi-main" aria-labelledby="blogTitle">
+      <header class="bi-head">
+        <p class="bi-kicker">Shared notes from our little nest</p>
+        <h1 id="blogTitle">Blog</h1>
+        <p class="bi-count" id="postCount">Page 1 · Showing {posts.length} posts</p>
+      </header>
+
+      <div class="bi-toolbar">
+        <button class="bi-filter is-active" type="button" data-filter="all">All posts</button>
+        <button class="bi-filter bi-filter--white" type="button" data-filter="white">{authorNames.white}</button>
+        <button class="bi-filter bi-filter--brown" type="button" data-filter="brown">{authorNames.brown}</button>
+        {user ? (
+          <button class="bi-upload-toggle" id="blogUploadToggle" type="button" aria-expanded="false" aria-controls="blogUploadPanel">Upload Markdown</button>
+        ) : (
+          <a class="bi-upload-toggle" href="/auth/login">Log in to upload</a>
+        )}
+        <a class="bi-years" href="#archive">Browse by year →</a>
+      </div>
+
+      {noticeError && <p style="margin:-6px 0 18px;padding:10px 14px;border-radius:12px;color:#9d3f3f;background:rgba(255,242,242,.85);font-weight: 650;">{noticeError}</p>}
+      {deleted === "post" && <p style="margin:-6px 0 18px;padding:10px 14px;border-radius:12px;color:#3f6a4f;background:rgba(232,247,236,.85);font-weight: 650;">Post deleted.</p>}
+
+      {user && (
+        <form class="bi-upload is-hidden" id="blogUploadPanel" action="/api/blog/upload" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="return_to" value="/blog" />
+          <label class="bi-upload__file" id="blogUploadDrop">
+            <input id="blogUploadInput" name="markdown" type="file" accept=".md,.markdown,text/markdown,text/plain" required />
+            <span class="bi-upload__file-art" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 5v10" />
+                <path d="m7 10 5-5 5 5" />
+                <path d="M5 17v1a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1" />
+              </svg>
+            </span>
+            <span class="bi-upload__file-text">
+              <strong id="blogUploadFileName">Choose a .md / .markdown file</strong>
+              <small id="blogUploadFileMeta">Click here, or drop a file here</small>
+            </span>
+            <span class="bi-upload__file-btn" id="blogUploadFakeBtn">Browse</span>
+          </label>
+          <label class="bi-upload__slug">
+            <span class="bi-upload__slug-label">Custom slug (optional, generated from title if empty)</span>
+            <input name="slug" type="text" maxlength="90" placeholder="our-first-post" class="bi-upload__slug-input" />
+          </label>
+          <label class="bi-upload__slug">
+            <span class="bi-upload__slug-label">Tags</span>
+            <input name="tags" type="text" maxlength="180" placeholder="life, cache, debug" class="bi-upload__slug-input" />
+            <small class="bi-upload__tag-help">Separate tags with commas, Chinese commas, or pauses.</small>
+          </label>
+          <div class="bi-upload__actions">
+            <p class="bi-upload__hint" id="blogUploadHint">Supports front matter: title, excerpt, tags. Tags entered here will be added too.</p>
+            <button class="bi-upload__save" type="submit">Publish post</button>
+          </div>
+        </form>
+      )}
+
+      <div class="post-list" id="postList">
+        {posts.length ? posts.map((post) => {
+          const author = (post.profiles?.author_key || "white") as AuthorKey;
+          const dateValue = post.published_at || post.created_at;
+          return (
+            <article class="post-item" data-authors={author} data-tags={(post.tags || []).join(" ")}>
+              <a class="post-item__link" href={`/blog/${encodeURIComponent(post.slug)}`}>
+                <time class="post-item__date" datetime={dateValue}>{formatDate(dateValue)}</time>
+                <h2>{displayPostTitle(post)}</h2>
+                <p>{displayPostExcerpt(post)}</p>
+                <div class="post-item__meta">
+                  <span>{authorEmoji(author)} {authorDisplayName(post.profiles, author, authorNames)}</span>
+                  <span>{readMinutes(post)} min read</span>
+                </div>
+                <div class="post-item__tags">
+                  {(post.tags || []).map((tag) => <span>{tag}</span>)}
+                </div>
+                <span class="post-item__arrow" aria-hidden="true">›</span>
+              </a>
+            </article>
+          );
+        }) : (
+          <article class="post-empty">
+            No posts yet. {user ? "Use “Upload Markdown” above to publish the first one." : (
+              <a href="/auth/login" style="color:#d49356;font-weight: 650;">Log in to publish Markdown →</a>
+            )}
+          </article>
+        )}
+      </div>
+
+      <p class="post-empty is-hidden" id="postEmpty">No posts match this filter yet.</p>
+
+      <nav class="bi-pager" aria-label="Blog pagination">
+        <button class="bi-pager__btn is-disabled" type="button" disabled>Previous</button>
+        <span class="bi-pager__now">1 / 1</span>
+        <button class="bi-pager__btn is-disabled" type="button" disabled>Next</button>
+      </nav>
+    </section>
+
+    <aside class="bi-side" aria-label="Blog filters">
+      <section class="tag-panel">
+        <div class="tag-panel__head">
+          <span class="tag-panel__icon" aria-hidden="true">◇</span>
+          <h2>Tags</h2>
+        </div>
+        <div class="tag-grid" id="tagGrid">
+          {allTags.length ? allTags.map((tag) => (
+            <button type="button" data-tag={tag}>{tag}</button>
+          )) : <span style="color:#7a8aa0;">No tags yet</span>}
+        </div>
+        <button class="tag-panel__all" id="clearTags" type="button">View all →</button>
+      </section>
+
+      <section class="archive-panel" id="archive">
+        <h2>Archive</h2>
+        <a href="/blog" id="archiveCount">{currentYear} · {posts.length} posts</a>
+      </section>
+    </aside>
+  </main>
+
+  <Fragment slot="scripts">
+    <script is:inline src="/scripts/blog-index.js"></script>
+    <script is:inline>
+      (function () {
+        var input = document.getElementById("blogUploadInput");
+        var drop = document.getElementById("blogUploadDrop");
+        var fileName = document.getElementById("blogUploadFileName");
+        var fileMeta = document.getElementById("blogUploadFileMeta");
+        if (!input || !drop || !fileName) return;
+
+        function fmtSize(bytes) {
+          if (bytes < 1024) return bytes + " B";
+          if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+          return (bytes / 1024 / 1024).toFixed(2) + " MB";
+        }
+        function reflect() {
+          var f = input.files && input.files[0];
+          if (f) {
+            drop.classList.add("has-file");
+            fileName.textContent = f.name;
+            if (fileMeta) fileMeta.textContent = fmtSize(f.size) + " · Ready to publish";
+          } else {
+            drop.classList.remove("has-file");
+            fileName.textContent = "Choose a .md / .markdown file";
+            if (fileMeta) fileMeta.textContent = "Click here, or drop a file here";
+          }
+        }
+        input.addEventListener("change", reflect);
+        ["dragenter", "dragover"].forEach(function (ev) {
+          drop.addEventListener(ev, function (e) {
+            e.preventDefault(); e.stopPropagation();
+            drop.classList.add("is-dragover");
+          });
+        });
+        ["dragleave", "drop"].forEach(function (ev) {
+          drop.addEventListener(ev, function (e) {
+            e.preventDefault(); e.stopPropagation();
+            drop.classList.remove("is-dragover");
+          });
+        });
+        drop.addEventListener("drop", function (e) {
+          var files = e.dataTransfer && e.dataTransfer.files;
+          if (!files || !files.length) return;
+          input.files = files;
+          reflect();
+        });
+      })();
+    </script>
+    <style is:global>
+      .bi-upload__file {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        min-height: 88px;
+        padding: 18px 20px;
+        border: 2px dashed rgba(122, 166, 212, 0.45);
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(255,255,255,.78), rgba(241,247,253,.62));
+        color: #58728b;
+        font-weight: 600;
+        cursor: pointer;
+        transition: border-color .2s ease, background .2s ease, transform .15s ease, box-shadow .2s ease;
+      }
+      .bi-upload__file:hover {
+        border-color: rgba(122, 166, 212, 0.85);
+        background: linear-gradient(180deg, #fff, rgba(232,243,255,.82));
+        transform: translateY(-2px);
+        box-shadow: 0 14px 28px rgba(80,120,160,.14);
+      }
+      .bi-upload__file.is-dragover {
+        border-color: #7aa6d4;
+        background: linear-gradient(180deg, #fff, rgba(220,236,254,.92));
+        box-shadow: 0 0 0 4px rgba(122,166,212,.18), 0 16px 32px rgba(80,120,160,.18);
+      }
+      .bi-upload__file.has-file {
+        border-style: solid;
+        border-color: rgba(159, 220, 197, 0.82);
+        background: linear-gradient(180deg, rgba(245,255,250,.92), rgba(232,247,239,.78));
+      }
+      .bi-upload__file input[type="file"] {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+      }
+      .bi-upload__file-art {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 52px;
+        height: 52px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, #cfe6f7, #d9f0e4);
+        color: #4f85b8;
+        box-shadow: 0 6px 14px rgba(80,130,170,.18);
+      }
+      .bi-upload__file.has-file .bi-upload__file-art {
+        background: linear-gradient(135deg, #c2ead6, #def5e7);
+        color: #4a8c6a;
+      }
+      .bi-upload__file-text {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+      }
+      .bi-upload__file-text strong {
+        color: #3f5a72;
+        font-size: 15px;
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .bi-upload__file-text small {
+        color: #7a8aa0;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .bi-upload__file-btn {
+        flex: 0 0 auto;
+        padding: 9px 18px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #8fc7e8, #9fdcc5);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+        box-shadow: 0 8px 18px rgba(80,130,150,.24);
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      .bi-upload__file.has-file .bi-upload__file-btn::after {
+        content: " ✓";
+      }
+      .bi-upload__file:focus-within {
+        outline: 3px solid rgba(122,166,212,.32);
+        outline-offset: 3px;
+      }
+
+      .bi-upload__slug {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 14px;
+        padding: 14px 18px;
+        border-radius: 16px;
+        background: rgba(255,255,255,.6);
+        border: 1px solid rgba(122,166,212,.18);
+      }
+      .bi-upload__slug-label {
+        color: #58728b;
+        font-size: 13px;
+        font-weight: 650;
+      }
+      .bi-upload__slug-input {
+        width: 100%;
+        padding: 10px 14px;
+        border: 1px solid rgba(122,166,212,.32);
+        border-radius: 999px;
+        background: rgba(255,255,255,.85);
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        color: #4a4f5c;
+        outline: none;
+        transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+      }
+      .bi-upload__slug-input:focus {
+        border-color: #8fc7e8;
+        background: #fff;
+        box-shadow: 0 0 0 4px rgba(143,199,232,.18);
+      }
+      .bi-upload__tag-help {
+        color: #7a8aa0;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.5;
+      }
+
+      @media (max-width: 560px) {
+        .bi-upload__file {
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+        .bi-upload__file-btn {
+          margin-left: auto;
+        }
+      }
+    </style>
+  </Fragment>
+</PrototypeLayout>

@@ -1,0 +1,655 @@
+---
+import PrototypeLayout from "../layouts/PrototypeLayout.astro";
+import { createServiceClient } from "../lib/supabase";
+import { getSupabaseEnv } from "../lib/env";
+import { attachSignedPhotoUrls } from "../lib/storage";
+import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
+import { MOOD_LABELS } from "../lib/types";
+import type { AuthorKey, LifeRecord, Photo } from "../lib/types";
+
+const supabase = createServiceClient();
+const { url: supabaseUrl, anonKey: supabaseAnonKey } = getSupabaseEnv();
+const user = Astro.locals.user;
+const profile = Astro.locals.profile;
+const myAuthorKey = (profile?.author_key || "white") as AuthorKey;
+
+const [{ data: photosData }, { data: recordsData }, { data: authorRows }] = await Promise.all([
+  supabase
+    .from("photos")
+    .select("id,owner_id,title,caption,taken_on,storage_path,mime_type,created_at,profiles(display_name,author_key)")
+    .order("taken_on", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false }),
+  supabase
+    .from("life_records")
+    .select("id,owner_id,record_on,mood,body,profiles(display_name,author_key)"),
+  supabase.from("profiles").select("author_key,display_name"),
+]);
+
+const photos = await attachSignedPhotoUrls((photosData || []) as Photo[]);
+const records = (recordsData || []) as LifeRecord[];
+const authorNames = makeAuthorNames(authorRows || []);
+const currentAuthorName = authorDisplayName(profile, myAuthorKey, authorNames);
+
+const recordByKey = new Map<string, LifeRecord>();
+records.forEach((r) => {
+  const k = `${(r.profiles?.author_key || "white") as AuthorKey}|${r.record_on}`;
+  recordByKey.set(k, r);
+});
+
+const byDate = new Map<string, typeof photos>();
+photos.forEach((p) => {
+  const key = p.taken_on || p.created_at.slice(0, 10);
+  const list = byDate.get(key) || [];
+  list.push(p);
+  byDate.set(key, list);
+});
+const dates = Array.from(byDate.keys()).sort((a, b) => b.localeCompare(a));
+
+function prettyDate(value: string) {
+  const [, mm, dd] = value.split("-");
+  return `${Number(mm)}/${Number(dd)}`;
+}
+
+const today = new Date().toISOString().slice(0, 10);
+
+// 把详情视图所需的数据序列化，给客户端 JS 使用
+const photoBundles: Record<string, Array<{
+  id: string;
+  url: string;
+  title: string | null;
+  caption: string | null;
+  who: AuthorKey;
+  canDelete: boolean;
+  diary?: { mood: string; body: string; author: string } | null;
+}>> = {};
+dates.forEach((date) => {
+  photoBundles[date] = (byDate.get(date) || []).map((p) => {
+    const who = (p.profiles?.author_key || "white") as AuthorKey;
+    const diary = recordByKey.get(`${who}|${date}`);
+    return {
+      id: p.id,
+      url: p.publicUrl!,
+      title: p.title,
+      caption: p.caption,
+      who,
+      canDelete: !!user && p.owner_id === user.id,
+      diary: diary ? {
+        mood: MOOD_LABELS[diary.mood] || diary.mood,
+        body: diary.body,
+        author: authorDisplayName(diary.profiles, (diary.profiles?.author_key || "white") as AuthorKey, authorNames),
+      } : null,
+    };
+  });
+});
+
+const noticeError = Astro.url.searchParams.get("error");
+const uploaded = Astro.url.searchParams.get("uploaded");
+const deleted = Astro.url.searchParams.get("deleted");
+---
+
+<PrototypeLayout title="Photos · Our Nest" current="photos" bgClass="pw-bg" backHref="/?skipCover=1#home">
+  <Fragment slot="head">
+    <link rel="stylesheet" href="/styles/photos.css" />
+  </Fragment>
+
+  <main class="pw-main">
+    <section class="pw-wall" id="pwWall">
+      <header class="pw-header">
+        <h1 class="pw-title">📷 Photos</h1>
+        <p class="pw-subtitle">Keeping everyday moments in pictures</p>
+        {noticeError && <p style="margin-top:14px;color:#9d3f3f;background:rgba(255,242,242,.8);padding:10px 14px;border-radius:12px;display:inline-block;">{noticeError}</p>}
+        {uploaded === "photo" && <p style="margin-top:14px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Photo uploaded.</p>}
+        {deleted === "photo" && <p style="margin-top:14px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Photo deleted.</p>}
+      </header>
+      <div class="pw-toolbar">
+        {user ? (
+          <button class="pw-upload-btn" id="pwUploadBtn" type="button">＋ Upload photo</button>
+        ) : (
+          <a class="pw-upload-btn" href="/auth/login">Log in to upload</a>
+        )}
+      </div>
+      <div class="pw-stacks" id="pwStacks">
+        {dates.length ? dates.map((date) => {
+          const list = byDate.get(date) || [];
+          const preview = list.slice(0, 4);
+          const firstAuthor = (list[0]?.profiles?.author_key || "white") as AuthorKey;
+          const firstAuthorName = authorDisplayName(list[0]?.profiles, firstAuthor, authorNames);
+          return (
+            <div class="pw-stack-cell">
+              <button class="pw-stack" type="button" data-date={date}>
+                {preview.map((photo, idx) => {
+                  const rot = (Math.random() * 16 - 8).toFixed(1);
+                  const tx = (Math.random() * 14 - 7).toFixed(1);
+                  const ty = (Math.random() * 10 - 5).toFixed(1);
+                  return (
+                    <span class="pw-stack__layer" style={`--rot:${rot}deg;--tx:${tx}px;--ty:${ty}px;z-index:${10 - idx}`}>
+                      <img src={photo.publicUrl} alt={photo.title || "Photo"} loading="lazy" />
+                    </span>
+                  );
+                })}
+                <span class="pw-stack__count">{list.length} photos</span>
+              </button>
+              <div class="pw-stack__meta">
+                <div class="pw-stack__name">{prettyDate(date)}</div>
+                <div class="pw-stack__sub">{firstAuthorName} · {list.length} photos</div>
+              </div>
+            </div>
+          );
+        }) : <div class="pw-empty">No photos yet. Upload the first one above.</div>}
+      </div>
+    </section>
+
+    <section class="pw-detail is-hidden" id="pwDetail">
+      <div class="pw-detail__bar">
+        <button class="pw-back-btn" id="pwBackBtn" type="button">← Photos</button>
+        <div class="pw-detail__meta">
+          <span class="pw-detail__date" id="pwDetailDate"></span>
+          <span class="pw-detail__count" id="pwDetailCount"></span>
+        </div>
+      </div>
+      <div class="pw-grid" id="pwGrid"></div>
+    </section>
+  </main>
+
+  {user && (
+    <div class="pw-modal is-hidden" id="pwModal" role="dialog" aria-modal="true" aria-label="Upload photo">
+      <div class="pw-modal__mask" id="pwModalMask"></div>
+      <form class="pw-modal__card" id="pwUploadForm" action="/api/photos/upload" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="return_to" value="/photos" />
+        <h2 class="pw-modal__title">Upload photo</h2>
+        <div class="pw-field">
+          <span class="pw-field__label">Uploader</span>
+          <div class="pw-who" aria-label={`Current account: ${currentAuthorName}`}>
+            <span class={`pw-who__btn ${myAuthorKey === "white" ? "is-active" : ""}`}>🐶 {authorNames.white}</span>
+            <span class={`pw-who__btn ${myAuthorKey === "brown" ? "is-active" : ""}`}>🐕 {authorNames.brown}</span>
+          </div>
+        </div>
+        <div class="pw-field">
+          <span class="pw-field__label">Date</span>
+          <input class="pw-date" name="taken_on" type="date" value={today} />
+        </div>
+        <div class="pw-field">
+          <span class="pw-field__label">Caption (optional)</span>
+          <input class="pw-date" name="title" type="text" maxlength="80" placeholder="A small photo" />
+        </div>
+        <label class="pw-filebtn">
+          ＋ Choose photo
+          <input type="file" name="photo" accept="image/*" required hidden />
+        </label>
+        <p class="pw-modal__status" id="pwStatus"></p>
+        <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
+          <button class="pw-modal__close" id="pwModalClose" type="button">Cancel</button>
+          <button class="pw-modal__close" type="submit" style="background:#7aa6d4;color:#fff;border-color:#7aa6d4;">Save</button>
+        </div>
+      </form>
+    </div>
+  )}
+
+  <div class="pw-lb is-hidden" id="pwLb" role="dialog" aria-modal="true" aria-label="View photo">
+    <button class="pw-lb__close" id="pwLbClose" type="button" aria-label="Close">✕</button>
+    <button class="pw-lb__nav pw-lb__nav--prev" id="pwLbPrev" type="button" aria-label="Previous photo">‹</button>
+    <button class="pw-lb__nav pw-lb__nav--next" id="pwLbNext" type="button" aria-label="Next photo">›</button>
+    <figure class="pw-lb__stage">
+      <img class="pw-lb__img" id="pwLbImg" alt="" />
+      <figcaption class="pw-lb__cap" id="pwLbCap"></figcaption>
+      <div class="pw-lb__diary is-hidden" id="pwLbDiary"></div>
+    </figure>
+    {user && (
+      <form class="pw-lb__delete-form is-hidden" id="pwLbDeleteForm" action="/api/photos/delete" method="post" data-confirm="Delete this photo? This cannot be undone." data-confirm-title="Delete photo?">
+        <input type="hidden" name="id" id="pwLbDeleteId" value="" />
+        <input type="hidden" name="return_to" value="/photos" />
+        <button class="pw-lb__delete" type="submit">Delete photo</button>
+      </form>
+    )}
+  </div>
+
+  <script id="photoBundles" type="application/json" set:html={JSON.stringify(photoBundles)}></script>
+  <script id="supabaseConfig" type="application/json" set:html={JSON.stringify({ url: supabaseUrl, anonKey: supabaseAnonKey })}></script>
+
+  {user && (
+    <script>
+      import { uploadImageFile } from "../lib/upload-browser";
+
+      const form = document.getElementById("pwUploadForm") as HTMLFormElement | null;
+      const status = document.getElementById("pwStatus");
+      if (form) {
+        const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const fileInput = form.querySelector('input[name="photo"]') as HTMLInputElement | null;
+          const file = fileInput?.files?.[0];
+          if (!file) {
+            if (status) status.textContent = "Please choose a photo to upload.";
+            return;
+          }
+
+          const title = (form.querySelector('input[name="title"]') as HTMLInputElement | null)?.value.trim() || "";
+          const takenOn = (form.querySelector('input[name="taken_on"]') as HTMLInputElement | null)?.value.trim() || "";
+
+          if (submitBtn) submitBtn.disabled = true;
+          if (status) status.textContent = "Uploading…";
+
+          try {
+            const { path, mime_type } = await uploadImageFile(file);
+            const res = await fetch("/api/photos/commit", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ path, mime_type, title, taken_on: takenOn }),
+            });
+            if (!res.ok) {
+              const data = await res.json().catch(() => ({}));
+              throw new Error(data.error || "Could not save the photo.");
+            }
+            window.location.href = "/photos?uploaded=photo";
+          } catch (err) {
+            if (status) status.textContent = err instanceof Error ? err.message : "Upload failed.";
+            if (submitBtn) submitBtn.disabled = false;
+          }
+        });
+      }
+    </script>
+  )}
+
+  <Fragment slot="scripts">
+    <script is:inline>
+      (function () {
+        "use strict";
+        var bundles = {};
+        try { bundles = JSON.parse(document.getElementById("photoBundles").textContent || "{}"); } catch (e) {}
+
+        var wallEl = document.getElementById("pwWall");
+        var detailEl = document.getElementById("pwDetail");
+        var gridEl = document.getElementById("pwGrid");
+        var detailDate = document.getElementById("pwDetailDate");
+        var detailCount = document.getElementById("pwDetailCount");
+        var backBtn = document.getElementById("pwBackBtn");
+
+        function prettyDate(s) {
+          var p = s.split("-");
+          return Number(p[1]) + "/" + Number(p[2]);
+        }
+
+        function openDetail(date) {
+          var list = bundles[date] || [];
+          if (!list.length) return;
+          detailDate.textContent = prettyDate(date);
+          detailCount.textContent = list.length + " photos";
+          gridEl.textContent = "";
+          list.forEach(function (item, idx) {
+            var wrap = document.createElement("div");
+            wrap.className = "pw-photo-wrap";
+            var card = document.createElement("button");
+            card.type = "button";
+            card.className = "pw-photo-card";
+            card.setAttribute("data-idx", idx);
+            card.setAttribute("data-date", date);
+            var img = document.createElement("img");
+            img.src = item.url;
+            img.alt = item.title || "Photo";
+            img.loading = "lazy";
+            card.appendChild(img);
+            card.addEventListener("click", function () { openLb(date, idx); });
+            wrap.appendChild(card);
+            if (item.canDelete) {
+              var form = document.createElement("form");
+              form.className = "pw-photo-delete";
+              form.action = "/api/photos/delete";
+              form.method = "post";
+              form.setAttribute("data-confirm", "Delete this photo? This cannot be undone.");
+              form.setAttribute("data-confirm-title", "Delete photo?");
+              var id = document.createElement("input");
+              id.type = "hidden";
+              id.name = "id";
+              id.value = item.id;
+              var ret = document.createElement("input");
+              ret.type = "hidden";
+              ret.name = "return_to";
+              ret.value = "/photos";
+              var del = document.createElement("button");
+              del.type = "submit";
+              del.className = "pw-photo-delete__btn";
+              del.setAttribute("aria-label", "Delete photo");
+              del.textContent = "×";
+              form.appendChild(id);
+              form.appendChild(ret);
+              form.appendChild(del);
+              wrap.appendChild(form);
+            }
+            gridEl.appendChild(wrap);
+          });
+          wallEl.classList.add("is-hidden");
+          detailEl.classList.remove("is-hidden");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+
+        function closeDetail() {
+          detailEl.classList.add("is-hidden");
+          wallEl.classList.remove("is-hidden");
+        }
+
+        document.querySelectorAll(".pw-stack").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            openDetail(btn.getAttribute("data-date"));
+          });
+        });
+        if (backBtn) backBtn.addEventListener("click", closeDetail);
+
+        // 上传模态
+        var modal = document.getElementById("pwModal");
+        var uploadBtn = document.getElementById("pwUploadBtn");
+        var modalMask = document.getElementById("pwModalMask");
+        var modalClose = document.getElementById("pwModalClose");
+        function openModal() { if (modal) modal.classList.remove("is-hidden"); }
+        function closeModal() { if (modal) modal.classList.add("is-hidden"); }
+        if (uploadBtn) uploadBtn.addEventListener("click", openModal);
+        if (modalMask) modalMask.addEventListener("click", closeModal);
+        if (modalClose) modalClose.addEventListener("click", closeModal);
+
+        // 灯箱 + slicebox 翻转
+        var lbEl = document.getElementById("pwLb");
+        var lbImg = document.getElementById("pwLbImg");
+        var lbCap = document.getElementById("pwLbCap");
+        var lbDiary = document.getElementById("pwLbDiary");
+        var lbPrev = document.getElementById("pwLbPrev");
+        var lbNext = document.getElementById("pwLbNext");
+        var lbDeleteForm = document.getElementById("pwLbDeleteForm");
+        var lbDeleteId = document.getElementById("pwLbDeleteId");
+        var lbList = [], lbIndex = 0;
+
+        var SLICE_EASE = "cubic-bezier(0.66, 0.02, 0.34, 1)";
+        var SHADE_MAX = "0.6";
+        var sliceBusy = false;
+        var pendingSlide = null;
+        var lbGen = 0;
+        var lbFlipIdx = 0;
+
+        function escapeHtml(s) {
+          return (s || "").replace(/[<>&]/g, function (c) { return ({"<":"&lt;",">":"&gt;","&":"&amp;"})[c]; });
+        }
+
+        function renderLbMeta(item) {
+          lbCap.textContent = item.title || item.caption || "";
+          if (lbDeleteForm && lbDeleteId) {
+            lbDeleteForm.classList.toggle("is-hidden", !item.canDelete);
+            lbDeleteId.value = item.canDelete ? item.id : "";
+          }
+          if (item.diary) {
+            lbDiary.classList.remove("is-hidden");
+            lbDiary.innerHTML = '<div class="pw-lb__diary-head">' + escapeHtml(item.diary.author) + ' · ' + escapeHtml(item.diary.mood) + '</div><div class="pw-lb__diary-text">' + escapeHtml(item.diary.body) + '</div>';
+          } else {
+            lbDiary.classList.add("is-hidden");
+            lbDiary.innerHTML = "";
+          }
+        }
+
+        function showLb() {
+          var item = lbList[lbIndex];
+          if (!item) return;
+          lbImg.src = item.url;
+          lbImg.style.visibility = "";
+          renderLbMeta(item);
+        }
+
+        function openLb(date, idx) {
+          lbList = bundles[date] || [];
+          lbIndex = idx;
+          lbGen++;
+          sliceBusy = false;
+          showLb();
+          var many = lbList.length > 1;
+          lbPrev.style.display = many ? "" : "none";
+          lbNext.style.display = many ? "" : "none";
+          lbEl.classList.remove("is-hidden");
+          document.addEventListener("keydown", lbKey);
+        }
+        function closeLb() {
+          if (pendingSlide) pendingSlide.finish();
+          lbGen++;
+          sliceBusy = false;
+          lbEl.classList.add("is-hidden");
+          if (lbDeleteForm && lbDeleteId) {
+            lbDeleteForm.classList.add("is-hidden");
+            lbDeleteId.value = "";
+          }
+          document.removeEventListener("keydown", lbKey);
+        }
+        function prefersReducedMotion() {
+          return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+        }
+        function lbStep(d) {
+          if (lbList.length < 2 || sliceBusy) return;
+          var nextIndex = (lbIndex + d + lbList.length) % lbList.length;
+          if (prefersReducedMotion()) {
+            lbIndex = nextIndex;
+            showLb();
+            return;
+          }
+          sliceTransition(nextIndex, d > 0);
+        }
+        function lbKey(e) {
+          if (e.key === "Escape") closeLb();
+          else if (e.key === "ArrowLeft") lbStep(-1);
+          else if (e.key === "ArrowRight") lbStep(1);
+        }
+
+        function sliceTransition(nextIndex, forward) {
+          var toPhoto = lbList[nextIndex];
+          if (!toPhoto) return;
+          var rect = lbImg.getBoundingClientRect();
+          if (rect.width < 8 || rect.height < 8) {
+            lbIndex = nextIndex;
+            showLb();
+            return;
+          }
+          sliceBusy = true;
+          var whole = (lbFlipIdx % 2) === 1;
+          lbFlipIdx++;
+          var gen = lbGen;
+          var fromUrl = lbImg.src;
+          var toUrl = toPhoto.url;
+          var pre = new Image();
+          pre.onload = function () {
+            if (gen !== lbGen) return;
+            runSlice(rect, fromUrl, toUrl,
+                     pre.naturalWidth || rect.width,
+                     pre.naturalHeight || rect.height,
+                     nextIndex, forward, whole);
+          };
+          pre.onerror = function () {
+            sliceBusy = false;
+            if (gen !== lbGen) return;
+            lbIndex = nextIndex;
+            showLb();
+          };
+          pre.src = toUrl;
+        }
+
+        function makeFace(url, bgSize, bgPos, transform, dur, delay, shade0) {
+          var face = document.createElement("div");
+          face.className = "pw-slice__face";
+          face.style.backgroundImage = "url(" + url + ")";
+          face.style.backgroundSize = bgSize;
+          face.style.backgroundPosition = bgPos;
+          face.style.transform = transform;
+          var shade = document.createElement("div");
+          shade.className = "pw-slice__shade";
+          shade.style.opacity = shade0;
+          shade.style.transition = "opacity " + dur + "ms " + SLICE_EASE;
+          shade.style.transitionDelay = delay;
+          face.appendChild(shade);
+          return { face: face, shade: shade };
+        }
+
+        function runSlice(rect, fromUrl, toUrl, nW, nH, nextIndex, forward, whole) {
+          var W = rect.width, H = rect.height;
+          var vertical = Math.random() < 0.5;
+          var N = whole ? 1 : (3 + Math.floor(Math.random() * 6));
+          var step = whole ? 0 : Math.max(55, Math.min(95, Math.round(440 / N)));
+          var reverse = Math.random() < 0.5;
+          var dur = whole ? 780 : 660;
+          var seam = whole ? 0 : 1;
+          var rotAxis = vertical ? "Y" : "X";
+
+          var wrapFlip = forward ? (vertical ? -90 : 90) : (vertical ? 90 : -90);
+          var sideAngle = -wrapFlip;
+
+          var unit = (vertical ? W : H) / N;
+          var depth = unit + seam;
+          var half = depth / 2;
+
+          var persp = Math.max(1500, half * 2.6);
+          var f = persp / (persp - half);
+
+          var box = document.createElement("div");
+          box.className = "pw-slicebox";
+          box.style.left = rect.left + "px";
+          box.style.top = rect.top + "px";
+          box.style.width = W + "px";
+          box.style.height = H + "px";
+          box.style.perspective = persp + "px";
+          box.style.transform = "scale(" + (1 / f) + ")";
+
+          var cover = Math.max(W / nW, H / nH);
+          var drawW = nW * cover, drawH = nH * cover;
+          var offX = (W - drawW) / 2, offY = (H - drawH) / 2;
+
+          var slices = [];
+          for (var i = 0; i < N; i++) {
+            var slice = document.createElement("div");
+            slice.className = "pw-slice";
+            if (vertical) {
+              slice.style.left = (i * unit) + "px";
+              slice.style.top = "0";
+              slice.style.width = depth + "px";
+              slice.style.height = H + "px";
+            } else {
+              slice.style.left = "0";
+              slice.style.top = (i * unit) + "px";
+              slice.style.width = W + "px";
+              slice.style.height = depth + "px";
+            }
+            slice.style.transform = "rotate" + rotAxis + "(0deg)";
+            slice.style.transition = "transform " + dur + "ms " + SLICE_EASE;
+            var delay = ((reverse ? (N - 1 - i) : i) * step) + "ms";
+            slice.style.transitionDelay = delay;
+
+            var front = makeFace(fromUrl, W + "px " + H + "px",
+              vertical ? (-(i * unit)) + "px 0px" : "0px " + (-(i * unit)) + "px",
+              "translateZ(" + half + "px)", dur, delay, "0");
+            var side = makeFace(toUrl, drawW + "px " + drawH + "px",
+              vertical ? (offX - i * unit) + "px " + offY + "px"
+                       : offX + "px " + (offY - i * unit) + "px",
+              "rotate" + rotAxis + "(" + sideAngle + "deg) translateZ(" + half + "px)",
+              dur, delay, SHADE_MAX);
+
+            slice.appendChild(front.face);
+            slice.appendChild(side.face);
+            box.appendChild(slice);
+            slices.push({ el: slice, frontShade: front.shade, sideShade: side.shade });
+          }
+
+          lbEl.appendChild(box);
+          lbImg.style.visibility = "hidden";
+          void box.offsetWidth;
+
+          requestAnimationFrame(function () {
+            slices.forEach(function (s) {
+              s.el.style.transform = "rotate" + rotAxis + "(" + wrapFlip + "deg)";
+              s.frontShade.style.opacity = SHADE_MAX;
+              s.sideShade.style.opacity = "0";
+            });
+          });
+
+          function finish() {
+            if (!pendingSlide) return;
+            clearTimeout(pendingSlide.timer);
+            pendingSlide = null;
+            if (box.parentNode) box.parentNode.removeChild(box);
+            lbIndex = nextIndex;
+            lbImg.src = toUrl;
+            lbImg.style.visibility = "";
+            var p = lbList[lbIndex];
+            if (p) renderLbMeta(p);
+            sliceBusy = false;
+          }
+
+          pendingSlide = {
+            finish: finish,
+            timer: setTimeout(finish, (N - 1) * step + dur + 90)
+          };
+        }
+
+        document.getElementById("pwLbClose").addEventListener("click", closeLb);
+        lbPrev.addEventListener("click", function () { lbStep(-1); });
+        lbNext.addEventListener("click", function () { lbStep(1); });
+        lbEl.addEventListener("click", function (e) { if (e.target === lbEl) closeLb(); });
+
+      })();
+    </script>
+    <style is:global>
+      .pw-photo-wrap {
+        position: relative;
+        width: 100%;
+      }
+      .pw-photo-card {
+        width: 100%;
+        border: none;
+        padding: 0;
+        background: #fff;
+        border-radius: 14px;
+        overflow: hidden;
+        cursor: pointer;
+        box-shadow: 0 8px 22px rgba(70,80,110,.16);
+        transition: transform .22s cubic-bezier(.34,1.56,.64,1);
+      }
+      .pw-photo-card:hover { transform: translateY(-6px); }
+      .pw-photo-card img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 4/3;
+        object-fit: cover;
+      }
+      .pw-photo-delete {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 2;
+      }
+      .pw-photo-delete__btn {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border: 1px solid rgba(255,255,255,.76);
+        border-radius: 50%;
+        background: rgba(255,255,255,.86);
+        color: #b45656;
+        font-family: var(--font);
+        font-size: 20px;
+        font-weight: 650;
+        line-height: 1;
+        cursor: pointer;
+        box-shadow: 0 8px 18px rgba(60,70,90,.2);
+        -webkit-backdrop-filter: blur(6px);
+        backdrop-filter: blur(6px);
+        transition: background .16s ease, color .16s ease, transform .16s ease;
+      }
+      .pw-photo-delete__btn:hover {
+        background: #fff2f2;
+        color: #963f3f;
+        transform: translateY(-2px) scale(1.04);
+      }
+      .pw-lb__delete-form {
+        position: absolute;
+        bottom: 24px;
+        left: 50%;
+        z-index: 120;
+        transform: translateX(-50%);
+      }
+      .pw-lb__delete-form .pw-lb__delete {
+        position: static;
+        transform: none;
+      }
+    </style>
+  </Fragment>
+</PrototypeLayout>
