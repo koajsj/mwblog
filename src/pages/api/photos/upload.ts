@@ -1,11 +1,12 @@
 import type { APIRoute } from "astro";
 import { extensionFromFile, isAllowedImageType, MAX_PHOTO_BYTES } from "../../../lib/files";
 import { encryptNullablePrivateText } from "../../../lib/private-data";
+import { encryptPrivateFile } from "../../../lib/private-files";
 import { ensureStorageBuckets } from "../../../lib/storage";
 import { safeLocalRedirect } from "../../../lib/redirect";
 import { createServiceClient } from "../../../lib/supabase";
 
-export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => {
+export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const user = locals.user;
   if (!user) return redirect("/auth/login", 303);
 
@@ -39,8 +40,15 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(message)}`, 303);
   }
 
-  const { error: uploadError } = await supabase.storage.from("photos").upload(path, file, {
-    contentType: file.type,
+  let encrypted: Buffer;
+  try {
+    encrypted = encryptPrivateFile(Buffer.from(await file.arrayBuffer()), file.type);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Photo encryption failed.";
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(message)}`, 303);
+  }
+  const { error: uploadError } = await supabase.storage.from("photos").upload(path, encrypted, {
+    contentType: "application/octet-stream",
     upsert: false,
   });
 

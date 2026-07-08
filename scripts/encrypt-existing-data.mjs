@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 const PREFIX = "enc:v1:";
+const FILE_HEADER_PREFIX = "MWBLOG_FILE_V1 ";
 
 const tableFields = [
   ["profiles", ["weather_text", "weather_label", "mood_text", "doing_text"]],
@@ -49,9 +50,42 @@ function encrypt(value, key) {
   return `${PREFIX}${iv.toString("base64url")}:${tag.toString("base64url")}:${ciphertext.toString("base64url")}`;
 }
 
+function fileIsEncrypted(buffer) {
+  return buffer.subarray(0, FILE_HEADER_PREFIX.length).toString("utf8") === FILE_HEADER_PREFIX;
+}
+
+function encryptFileBytes(buffer, key, mimeType) {
+  if (fileIsEncrypted(buffer)) return buffer;
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const ciphertext = Buffer.concat([cipher.update(buffer), cipher.final()]);
+  const header = Buffer.from(`${FILE_HEADER_PREFIX}${JSON.stringify({
+    iv: iv.toString("base64url"),
+    tag: cipher.getAuthTag().toString("base64url"),
+    mimeType: mimeType || "application/octet-stream",
+  })}\n`, "utf8");
+  return Buffer.concat([header, ciphertext]);
+}
+
+async function selectAll(supabase, table, columns, build = (query) => query) {
+  const rows = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const query = build(supabase.from(table).select(columns)).range(from, from + pageSize - 1);
+    const { data, error } = await query;
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 async function encryptTable(supabase, table, fields, key) {
-  const { data, error } = await supabase.from(table).select(["id", ...fields].join(",")).limit(1000);
-  if (error) throw error;
+  const data = await selectAll(supabase, table, ["id", ...fields].join(","));
 
   let changed = 0;
   for (const row of data || []) {
@@ -69,12 +103,9 @@ async function encryptTable(supabase, table, fields, key) {
 }
 
 async function encryptMarkdownBackups(supabase, key) {
-  const { data: posts, error } = await supabase
-    .from("blog_posts")
-    .select("storage_path,content_markdown")
-    .not("storage_path", "is", null)
-    .limit(1000);
-  if (error) throw error;
+  const posts = await selectAll(supabase, "blog_posts", "storage_path,content_markdown", (query) =>
+    query.not("storage_path", "is", null),
+  );
 
   let changed = 0;
   for (const post of posts || []) {
@@ -92,6 +123,29 @@ async function encryptMarkdownBackups(supabase, key) {
     changed += 1;
   }
   console.log(`blog-markdown: encrypted ${changed} backups`);
+}
+
+async function encryptPhotoStorage(supabase, key) {
+  const photos = await selectAll(supabase, "photos", "storage_path,mime_type", (query) =>
+    query.not("storage_path", "is", null),
+  );
+
+  let changed = 0;
+  for (const photo of photos || []) {
+    if (!photo.storage_path) continue;
+    const { data: file, error: downloadError } = await supabase.storage.from("photos").download(photo.storage_path);
+    if (downloadError) throw downloadError;
+    const original = Buffer.from(await file.arrayBuffer());
+    if (fileIsEncrypted(original)) continue;
+    const encrypted = encryptFileBytes(original, key, photo.mime_type || file.type);
+    const { error: uploadError } = await supabase.storage.from("photos").upload(photo.storage_path, encrypted, {
+      contentType: "application/octet-stream",
+      upsert: true,
+    });
+    if (uploadError) throw uploadError;
+    changed += 1;
+  }
+  console.log(`photos storage: encrypted ${changed} files`);
 }
 
 loadDotEnv();
@@ -116,3 +170,4 @@ for (const [table, fields] of tableFields) {
   await encryptTable(supabase, table, fields, key);
 }
 await encryptMarkdownBackups(supabase, key);
+await encryptPhotoStorage(supabase, key);

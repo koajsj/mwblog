@@ -65,6 +65,19 @@ sudo tar -tzf /tmp/mwblog-backup.tar.gz | head
 ```text
 014_privacy_lockdown.sql
 015_private_text_encryption.sql
+016_encrypted_photo_storage.sql
 ```
 
 `015_private_text_encryption.sql` 会放宽加密字段的长度约束，并清空旧的经纬度字段。
+`016_encrypted_photo_storage.sql` 会允许照片 bucket 存储加密后的二进制文件。
+
+## 恢复到新 Supabase
+
+先在新项目执行全部迁移，并把 `.env` 改成新项目的 `SUPABASE_URL` 和 `SUPABASE_SERVICE_ROLE_KEY`。然后执行：
+
+```bash
+cd /opt/mwblog
+sudo BACKUP_PASSWORD="你的备份恢复码" npm run restore -- /var/backups/mwblog/你的备份文件.tar.gz.enc
+```
+
+如果当前 `.env` 没有 `APP_ENCRYPTION_KEY`，恢复脚本会从备份包里补上。若当前密钥和备份密钥不一致，脚本会停止，防止恢复出无法解密的数据。

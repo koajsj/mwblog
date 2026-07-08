@@ -1,8 +1,7 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createServiceClient } from "../lib/supabase";
-import { getSupabaseEnv } from "../lib/env";
-import { attachSignedPhotoUrls } from "../lib/storage";
+import { attachPrivatePhotoUrls } from "../lib/storage";
 import { decryptPrivateRows } from "../lib/private-data";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
 import { formatCommentTime } from "../lib/comments-display";
@@ -11,7 +10,6 @@ import { MOOD_LABELS } from "../lib/types";
 import type { AuthorKey, Comment, LifeRecord, Photo } from "../lib/types";
 
 const supabase = createServiceClient();
-const { url: supabaseUrl, anonKey: supabaseAnonKey } = getSupabaseEnv();
 const user = Astro.locals.user;
 const profile = Astro.locals.profile;
 const canCreate = !!user;
@@ -52,7 +50,7 @@ decryptPrivateRows((commentRows || []) as Comment[], ["body"]).forEach((c) => {
 });
 const currentAuthor = (profile?.author_key || "white") as AuthorKey;
 const currentAuthorName = authorDisplayName(profile, currentAuthor, authorNames);
-const photos = await attachSignedPhotoUrls(decryptPrivateRows((photosData || []) as Photo[], ["title", "caption"]));
+const photos = await attachPrivatePhotoUrls(decryptPrivateRows((photosData || []) as Photo[], ["title", "caption"]));
 
 const photosByKey = new Map<string, typeof photos>();
 photos.forEach((photo) => {
@@ -294,8 +292,6 @@ const deleted = Astro.url.searchParams.get("deleted");
       ])
     )
   )}></script>
-  <script id="supabaseConfig" type="application/json" set:html={JSON.stringify({ url: supabaseUrl, anonKey: supabaseAnonKey })}></script>
-
   {canCreate && (
     <script>
       import { uploadImageFile } from "../lib/upload-browser";

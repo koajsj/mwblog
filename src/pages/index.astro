@@ -1,7 +1,7 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createServiceClient } from "../lib/supabase";
-import { attachSignedPhotoUrls } from "../lib/storage";
+import { attachPrivatePhotoUrls } from "../lib/storage";
 import { markdownToPlainText } from "../lib/markdown";
 import { decryptPrivateRows } from "../lib/private-data";
 import { AUTHOR_LABELS } from "../lib/types";
@@ -33,7 +33,7 @@ const [{ data: posts }, { data: photos }, { data: placeRows }] = await Promise.a
 const dbPlaces = decryptPrivateRows((placeRows || []) as Place[], ["name", "note"]);
 
 const recentPosts = decryptPrivateRows((posts || []) as BlogPost[], ["title", "excerpt"]);
-const recentPhotos = await attachSignedPhotoUrls(decryptPrivateRows((photos || []) as Photo[], ["title", "caption"]));
+const recentPhotos = await attachPrivatePhotoUrls(decryptPrivateRows((photos || []) as Photo[], ["title", "caption"]));
 const displayPhotos = recentPhotos.slice(0, 5);
 // 不论是否登录都拉两个作者的资料 + 已同步的状态，让访客也能看到双方的状态
 const { data: profileRows } = await supabase

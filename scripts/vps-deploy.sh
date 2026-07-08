@@ -112,7 +112,7 @@ build_app() {
     npm run setup:users
   fi
   if ! npm run encrypt:existing; then
-    echo "Existing-data encryption skipped. Apply Supabase migrations 014/015, then run: cd ${APP_DIR} && npm run encrypt:existing" >&2
+    echo "Existing-data encryption skipped. Apply Supabase migrations 014/015/016, then run: cd ${APP_DIR} && npm run encrypt:existing" >&2
   fi
   npm run build
 }

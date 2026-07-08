@@ -1,7 +1,6 @@
 import { createServiceClient } from "./supabase";
 
 let checked = false;
-const SIGNED_PHOTO_URL_TTL_SECONDS = 60 * 60;
 
 async function ensureBucket(
   name: string,
@@ -39,7 +38,7 @@ export async function ensureStorageBuckets() {
   await ensureBucket("photos", {
     public: false,
     fileSizeLimit: 50 * 1024 * 1024,
-    allowedMimeTypes: ["image/jpeg", "image/png", "image/webp", "image/gif"],
+    allowedMimeTypes: ["application/octet-stream", "image/jpeg", "image/png", "image/webp", "image/gif"],
   });
 
   await ensureBucket("blog-markdown", {
@@ -51,23 +50,10 @@ export async function ensureStorageBuckets() {
   checked = true;
 }
 
-export async function attachSignedPhotoUrls<T extends { storage_path: string }>(photos: T[]) {
-  if (!photos.length) return photos.map((photo) => ({ ...photo, publicUrl: "" }));
-
-  const service = createServiceClient();
-  const paths = photos.map((photo) => photo.storage_path);
-  const { data, error } = await service.storage
-    .from("photos")
-    .createSignedUrls(paths, SIGNED_PHOTO_URL_TTL_SECONDS);
-
-  if (error) {
-    return photos.map((photo) => ({ ...photo, publicUrl: "" }));
-  }
-
-  const urls = new Map((data || []).map((item) => [item.path, item.signedUrl || ""]));
+export async function attachPrivatePhotoUrls<T extends { id: string; storage_path: string }>(photos: T[]) {
   return photos.map((photo) => ({
     ...photo,
-    publicUrl: urls.get(photo.storage_path) || "",
+    publicUrl: `/api/photos/file?id=${encodeURIComponent(photo.id)}`,
   }));
 }
 

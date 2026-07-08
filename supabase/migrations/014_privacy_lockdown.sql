@@ -64,7 +64,7 @@ using (public.is_couple_member());
 update storage.buckets
 set public = false,
     file_size_limit = 52428800,
-    allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+    allowed_mime_types = array['application/octet-stream', 'image/jpeg', 'image/png', 'image/webp', 'image/gif']
 where id = 'photos';
 
 drop policy if exists "public can read photos bucket" on storage.objects;

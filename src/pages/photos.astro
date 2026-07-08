@@ -1,15 +1,13 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createServiceClient } from "../lib/supabase";
-import { getSupabaseEnv } from "../lib/env";
-import { attachSignedPhotoUrls } from "../lib/storage";
+import { attachPrivatePhotoUrls } from "../lib/storage";
 import { decryptPrivateRows } from "../lib/private-data";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
 import { MOOD_LABELS } from "../lib/types";
 import type { AuthorKey, LifeRecord, Photo } from "../lib/types";
 
 const supabase = createServiceClient();
-const { url: supabaseUrl, anonKey: supabaseAnonKey } = getSupabaseEnv();
 const user = Astro.locals.user;
 const profile = Astro.locals.profile;
 const myAuthorKey = (profile?.author_key || "white") as AuthorKey;
@@ -26,7 +24,7 @@ const [{ data: photosData }, { data: recordsData }, { data: authorRows }] = awai
   supabase.from("profiles").select("author_key,display_name"),
 ]);
 
-const photos = await attachSignedPhotoUrls(decryptPrivateRows((photosData || []) as Photo[], ["title", "caption"]));
+const photos = await attachPrivatePhotoUrls(decryptPrivateRows((photosData || []) as Photo[], ["title", "caption"]));
 const records = decryptPrivateRows((recordsData || []) as LifeRecord[], ["body"]);
 const authorNames = makeAuthorNames(authorRows || []);
 const currentAuthorName = authorDisplayName(profile, myAuthorKey, authorNames);
@@ -205,8 +203,6 @@ const deleted = Astro.url.searchParams.get("deleted");
   </div>
 
   <script id="photoBundles" type="application/json" set:html={JSON.stringify(photoBundles)}></script>
-  <script id="supabaseConfig" type="application/json" set:html={JSON.stringify({ url: supabaseUrl, anonKey: supabaseAnonKey })}></script>
-
   {user && (
     <script>
       import { uploadImageFile } from "../lib/upload-browser";
