@@ -4,6 +4,7 @@ import { createServiceClient } from "../../lib/supabase";
 import { estimatedReadMinutes, firstMarkdownHeading, markdownToPlainText, renderArticleSections } from "../../lib/markdown";
 import { authorDisplayName } from "../../lib/author-display";
 import { formatCommentTime } from "../../lib/comments-display";
+import { decryptPrivateFields, decryptPrivateRows } from "../../lib/private-data";
 import { shanghaiParts } from "../../lib/datetime";
 import type { AuthorKey, BlogPost, Comment } from "../../lib/types";
 
@@ -27,7 +28,7 @@ if (!data) {
   return Astro.redirect("/blog");
 }
 
-const post = data as BlogPost;
+const post = decryptPrivateFields(data as BlogPost, ["title", "excerpt", "content_markdown"]);
 const author = (post.profiles?.author_key || "white") as AuthorKey;
 const authorName = authorDisplayName(post.profiles, author);
 const dateValue = post.published_at || post.created_at;
@@ -48,7 +49,7 @@ const { data: commentRows } = await supabase
   .eq("target_type", "blog")
   .eq("target_id", post.id)
   .order("created_at", { ascending: true });
-const comments = (commentRows || []) as Comment[];
+const comments = decryptPrivateRows((commentRows || []) as Comment[], ["body"]);
 const returnTo = `/blog/${encodeURIComponent(post.slug)}`;
 const commentError = Astro.url.searchParams.get("error");
 ---

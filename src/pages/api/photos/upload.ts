@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { extensionFromFile, isAllowedImageType, MAX_PHOTO_BYTES } from "../../../lib/files";
+import { encryptNullablePrivateText } from "../../../lib/private-data";
 import { ensureStorageBuckets } from "../../../lib/storage";
 import { safeLocalRedirect } from "../../../lib/redirect";
 import { createServiceClient } from "../../../lib/supabase";
@@ -49,14 +50,15 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
 
   const { error: insertError } = await supabase.from("photos").insert({
     owner_id: user.id,
-    title: title || null,
-    caption: caption || null,
+    title: encryptNullablePrivateText(title),
+    caption: encryptNullablePrivateText(caption),
     taken_on: takenOn,
     storage_path: path,
     mime_type: file.type,
   });
 
   if (insertError) {
+    await supabase.storage.from("photos").remove([path]);
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(insertError.message)}`, 303);
   }
 

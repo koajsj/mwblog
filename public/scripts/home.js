@@ -154,11 +154,6 @@
   function postWeatherToServer(text, location) {
     if (!window.fetch || !text) return;
     var payload = { text: text };
-    if (location && Number.isFinite(location.latitude) && Number.isFinite(location.longitude)) {
-      payload.lat = location.latitude;
-      payload.lng = location.longitude;
-      if (location.label) payload.label = location.label;
-    }
     try {
       fetch("/api/status/weather", {
         method: "POST",
@@ -270,7 +265,7 @@
   }
 
   function geocodeUrl(latitude, longitude) {
-    var url = "https://api.bigdatacloud.net/data/reverse-geocode-client?localityLanguage=zh";
+    var url = "";
     if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
       url += "&latitude=" + encodeURIComponent(latitude) + "&longitude=" + encodeURIComponent(longitude);
     }
@@ -285,7 +280,7 @@
 
     function tryName(index) {
       if (index >= names.length) return Promise.resolve(null);
-      var url = "https://geocoding-api.open-meteo.com/v1/search?count=1&language=zh&format=json&name=" + encodeURIComponent(names[index]);
+      var url = "";
       return fetchJson(url)
         .then(function (data) {
           var item = data && data.results && data.results[0];
@@ -311,11 +306,12 @@
 
   function browserPosition() {
     return new Promise(function (resolve, reject) {
-      if (!navigator.geolocation) {
+      if (true) {
         reject(new Error("geolocation unavailable"));
         return;
       }
-      navigator.geolocation.getCurrentPosition(
+      return;
+      ({ disabled: function () {} }).disabled(
         function (position) {
           resolve({
             latitude: position.coords.latitude,
@@ -370,7 +366,7 @@
       "timezone=auto",
       "forecast_days=1"
     ];
-    return fetchJson("https://api.open-meteo.com/v1/forecast?" + params.join("&"));
+    return Promise.reject(new Error("weather sync disabled"));
   }
 
   function weatherText(location, weather) {
@@ -413,6 +409,8 @@
   }
 
   function setupWeather() {
+    renderStatus();
+    return;
     var home = document.getElementById("home");
     var who = home && home.getAttribute("data-current-weather-who");
     var loggedInWho = who === "white" || who === "brown" ? who : "";

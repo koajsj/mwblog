@@ -1,6 +1,8 @@
 import type { APIRoute } from "astro";
 import { createServiceClient } from "../../../lib/supabase";
 import { isAllowedImageType } from "../../../lib/files";
+import { encryptNullablePrivateText } from "../../../lib/private-data";
+import { removeStoragePaths, storageObjectExists } from "../../../lib/storage";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -31,18 +33,22 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (takenOn && !/^\d{4}-\d{2}-\d{2}$/.test(takenOn)) {
     return json({ error: "Please choose a valid date." }, 400);
   }
+  if (!(await storageObjectExists("photos", path))) {
+    return json({ error: "Uploaded photo was not found. Please choose it again." }, 400);
+  }
 
   const supabase = createServiceClient();
   const { error: insertError } = await supabase.from("photos").insert({
     owner_id: user.id,
-    title: title || null,
-    caption: caption || null,
+    title: encryptNullablePrivateText(title),
+    caption: encryptNullablePrivateText(caption),
     taken_on: takenOn,
     storage_path: path,
     mime_type: mimeType || null,
   });
 
   if (insertError) {
+    await removeStoragePaths("photos", [path]);
     return json({ error: insertError.message }, 500);
   }
 

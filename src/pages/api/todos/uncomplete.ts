@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import { decryptPrivateFields } from "../../../lib/private-data";
 import { createServiceClient } from "../../../lib/supabase";
 import { deleteLinkedTodoActivities, json } from "../../../lib/todo-utils";
 
@@ -47,5 +48,5 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   if (error) return json({ error: error.message }, 500);
   if (!data) return json({ error: "Task not found." }, 404);
-  return json({ todo: data });
+  return json({ todo: decryptPrivateFields(data, ["title"]) });
 };

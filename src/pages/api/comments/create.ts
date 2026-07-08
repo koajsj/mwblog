@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { safeLocalRedirect } from "../../../lib/redirect";
+import { encryptPrivateText } from "../../../lib/private-data";
 import { createServiceClient } from "../../../lib/supabase";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
@@ -32,7 +33,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     target_type: targetType,
     target_id: targetId,
     author_id: user.id,
-    body,
+    body: encryptPrivateText(body),
   });
   if (error) return errorRedirect(error.message);
 

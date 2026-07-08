@@ -3,6 +3,7 @@ import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createServiceClient } from "../lib/supabase";
 import { attachSignedPhotoUrls } from "../lib/storage";
 import { markdownToPlainText } from "../lib/markdown";
+import { decryptPrivateRows } from "../lib/private-data";
 import { AUTHOR_LABELS } from "../lib/types";
 import type { AuthorKey, BlogPost, Photo, Place, PlaceTone, Profile } from "../lib/types";
 
@@ -29,17 +30,17 @@ const [{ data: posts }, { data: photos }, { data: placeRows }] = await Promise.a
     .order("created_at", { ascending: false })
     .limit(3),
 ]);
-const dbPlaces = (placeRows || []) as Place[];
+const dbPlaces = decryptPrivateRows((placeRows || []) as Place[], ["name", "note"]);
 
-const recentPosts = (posts || []) as BlogPost[];
-const recentPhotos = await attachSignedPhotoUrls((photos || []) as Photo[]);
+const recentPosts = decryptPrivateRows((posts || []) as BlogPost[], ["title", "excerpt"]);
+const recentPhotos = await attachSignedPhotoUrls(decryptPrivateRows((photos || []) as Photo[], ["title", "caption"]));
 const displayPhotos = recentPhotos.slice(0, 5);
 // 不论是否登录都拉两个作者的资料 + 已同步的状态，让访客也能看到双方的状态
 const { data: profileRows } = await supabase
   .from("profiles")
-  .select("id,email,author_key,display_name,weather_text,weather_updated_at,weather_lat,weather_lng,weather_label,mood_text,mood_date,doing_text,doing_date,created_at")
+  .select("id,email,author_key,display_name,weather_text,weather_updated_at,mood_text,mood_date,doing_text,doing_date,created_at")
   .in("author_key", ["white", "brown"]);
-const homeProfiles = (profileRows || []) as Profile[];
+const homeProfiles = decryptPrivateRows((profileRows || []) as Profile[], ["weather_text", "weather_label", "mood_text", "doing_text"]);
 const whiteProfile = homeProfiles.find((p) => p.author_key === "white");
 const brownProfile = homeProfiles.find((p) => p.author_key === "brown");
 const whiteDisplayName = whiteProfile?.display_name || "White";
@@ -178,9 +179,6 @@ const formatPostDate = (date: string) => new Date(date).toLocaleDateString("zh-C
                 <dd
                   id="whiteWeather"
                   data-server-weather={whiteWeather}
-                  data-lat={whiteProfile?.weather_lat ?? ""}
-                  data-lng={whiteProfile?.weather_lng ?? ""}
-                  data-label={whiteProfile?.weather_label ?? ""}
                   data-updated={whiteProfile?.weather_updated_at ?? ""}
                 >{whiteWeather || "Location pending · Weather pending"}</dd>
               </div>
@@ -216,9 +214,6 @@ const formatPostDate = (date: string) => new Date(date).toLocaleDateString("zh-C
                 <dd
                   id="brownWeather"
                   data-server-weather={brownWeather}
-                  data-lat={brownProfile?.weather_lat ?? ""}
-                  data-lng={brownProfile?.weather_lng ?? ""}
-                  data-label={brownProfile?.weather_label ?? ""}
                   data-updated={brownProfile?.weather_updated_at ?? ""}
                 >{brownWeather || "Location pending · Weather pending"}</dd>
               </div>

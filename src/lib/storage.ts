@@ -72,3 +72,26 @@ export async function attachSignedPhotoUrls<T extends { storage_path: string }>(
     publicUrl: urls.get(photo.storage_path) || "",
   }));
 }
+
+export async function storageObjectExists(bucket: string, path: string) {
+  const cleanPath = path.replace(/^\/+/, "");
+  const slash = cleanPath.lastIndexOf("/");
+  const folder = slash >= 0 ? cleanPath.slice(0, slash) : "";
+  const filename = slash >= 0 ? cleanPath.slice(slash + 1) : cleanPath;
+  if (!filename) return false;
+
+  const service = createServiceClient();
+  const { data, error } = await service.storage.from(bucket).list(folder, {
+    limit: 1,
+    search: filename,
+  });
+
+  if (error) return false;
+  return Boolean((data || []).some((item) => item.name === filename));
+}
+
+export async function removeStoragePaths(bucket: string, paths: string[]) {
+  const cleanPaths = paths.map((path) => path.trim()).filter(Boolean);
+  if (!cleanPaths.length) return;
+  await createServiceClient().storage.from(bucket).remove(cleanPaths);
+}

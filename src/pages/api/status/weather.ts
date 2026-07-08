@@ -1,43 +1,40 @@
 import type { APIRoute } from "astro";
+import { encryptNullablePrivateText } from "../../../lib/private-data";
 import { createServiceClient } from "../../../lib/supabase";
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const user = locals.user;
-  if (!user) return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), { status: 401 });
+  if (!user) return json({ ok: false, error: "unauthorized" }, 401);
 
-  let body: { text?: string; lat?: number; lng?: number; label?: string } = {};
+  let body: { text?: string } = {};
   try {
     body = await request.json();
   } catch {
-    return new Response(JSON.stringify({ ok: false, error: "invalid json" }), { status: 400 });
-  }
-  const text = String(body.text || "").trim().slice(0, 160);
-  if (!text) {
-    return new Response(JSON.stringify({ ok: false, error: "empty text" }), { status: 400 });
+    return json({ ok: false, error: "invalid json" }, 400);
   }
 
-  const update: Record<string, unknown> = {
-    weather_text: text,
-    weather_updated_at: new Date().toISOString(),
-  };
-  // 坐标可选；提供了就一起持久化，让对方设备能用这些坐标拉实时天气
-  const lat = Number(body.lat);
-  const lng = Number(body.lng);
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    update.weather_lat = lat;
-    update.weather_lng = lng;
-  }
-  const label = String(body.label || "").trim().slice(0, 80);
-  if (label) update.weather_label = label;
+  const text = String(body.text || "").trim().slice(0, 160);
+  if (!text) return json({ ok: false, error: "empty text" }, 400);
 
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("profiles")
-    .update(update)
+    .update({
+      weather_text: encryptNullablePrivateText(text),
+      weather_updated_at: new Date().toISOString(),
+      weather_lat: null,
+      weather_lng: null,
+      weather_label: null,
+    })
     .eq("id", user.id);
 
-  if (error) {
-    return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500 });
-  }
-  return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+  if (error) return json({ ok: false, error: error.message }, 500);
+  return json({ ok: true });
 };

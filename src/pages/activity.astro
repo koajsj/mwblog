@@ -1,6 +1,7 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createServiceClient } from "../lib/supabase";
+import { decryptPrivateRows } from "../lib/private-data";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
 import { ACTIVITY_PERIODS, AUTHOR_COLORS } from "../lib/types";
 import type { ActivityEntry, AuthorKey } from "../lib/types";
@@ -128,14 +129,14 @@ function entryDuration(entry: ActivityEntry) {
   return Math.max(1, Math.min(1440, Number(entry.minutes || 1)));
 }
 
-const allEntries = ((data || []) as ActivityEntry[]).sort((a, b) => {
+const allEntries = decryptPrivateRows((data || []) as ActivityEntry[], ["body"]).sort((a, b) => {
   const startDiff = entryStartMinute(a) - entryStartMinute(b);
   if (startDiff !== 0) return startDiff;
   return a.created_at.localeCompare(b.created_at);
 });
 
 const entries = allEntries.filter((entry) => (entry.profiles?.author_key || "white") === selectedView);
-const monthEntries = ((monthData || []) as ActivityEntry[]).filter((entry) => (entry.profiles?.author_key || "white") === selectedView);
+const monthEntries = decryptPrivateRows((monthData || []) as ActivityEntry[], ["body"]).filter((entry) => (entry.profiles?.author_key || "white") === selectedView);
 const authorNames = makeAuthorNames(authorRows || []);
 const selectedLabel = authorNames[selectedView];
 const selectedColor = AUTHOR_COLORS[selectedView];

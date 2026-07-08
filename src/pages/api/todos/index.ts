@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import { decryptPrivateRows } from "../../../lib/private-data";
 import { createServiceClient } from "../../../lib/supabase";
 import { isMissingTodoActivityLinkTable, json } from "../../../lib/todo-utils";
 import type { AuthorKey, TodoCompletionRange, TodoItem } from "../../../lib/types";
@@ -13,7 +14,7 @@ export const GET: APIRoute = async ({ url, locals }) => {
 
   if (error) return json({ error: error.message }, 500);
 
-  const todos = ((data || []) as TodoItem[]).filter((todo) => (todo.profiles?.author_key || "white") === view);
+  const todos = decryptPrivateRows((data || []) as TodoItem[], ["title"]).filter((todo) => (todo.profiles?.author_key || "white") === view);
   const todoIds = todos.map((todo) => todo.id);
 
   if (todoIds.length) {

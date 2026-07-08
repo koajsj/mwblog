@@ -3,6 +3,7 @@ import { storageSafeName } from "../../../lib/files";
 import { parseMarkdown, parseTagList, slugify } from "../../../lib/markdown";
 import { ensureStorageBuckets } from "../../../lib/storage";
 import { safeLocalRedirect } from "../../../lib/redirect";
+import { encryptPrivateText } from "../../../lib/private-data";
 import { createServiceClient } from "../../../lib/supabase";
 
 function mergeTags(...groups: string[][]) {
@@ -57,8 +58,9 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(message)}`, 303);
   }
 
-  const { error: uploadError } = await supabase.storage.from("blog-markdown").upload(storagePath, file, {
-    contentType: "text/markdown; charset=utf-8",
+  const encryptedContent = encryptPrivateText(content);
+  const { error: uploadError } = await supabase.storage.from("blog-markdown").upload(storagePath, new Blob([encryptedContent]), {
+    contentType: "text/plain; charset=utf-8",
     upsert: false,
   });
 
@@ -69,9 +71,9 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
   const { error: upsertError } = await supabase.from("blog_posts").upsert(
     {
       slug,
-      title: parsed.title,
-      excerpt: parsed.excerpt.slice(0, 320),
-      content_markdown: content,
+      title: encryptPrivateText(parsed.title),
+      excerpt: encryptPrivateText(parsed.excerpt.slice(0, 320)),
+      content_markdown: encryptedContent,
       storage_path: storagePath,
       author_id: user.id,
       tags,
@@ -81,6 +83,7 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
   );
 
   if (upsertError) {
+    await supabase.storage.from("blog-markdown").remove([storagePath]);
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(upsertError.message)}`, 303);
   }
 

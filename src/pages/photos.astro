@@ -3,6 +3,7 @@ import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createServiceClient } from "../lib/supabase";
 import { getSupabaseEnv } from "../lib/env";
 import { attachSignedPhotoUrls } from "../lib/storage";
+import { decryptPrivateRows } from "../lib/private-data";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
 import { MOOD_LABELS } from "../lib/types";
 import type { AuthorKey, LifeRecord, Photo } from "../lib/types";
@@ -25,8 +26,8 @@ const [{ data: photosData }, { data: recordsData }, { data: authorRows }] = awai
   supabase.from("profiles").select("author_key,display_name"),
 ]);
 
-const photos = await attachSignedPhotoUrls((photosData || []) as Photo[]);
-const records = (recordsData || []) as LifeRecord[];
+const photos = await attachSignedPhotoUrls(decryptPrivateRows((photosData || []) as Photo[], ["title", "caption"]));
+const records = decryptPrivateRows((recordsData || []) as LifeRecord[], ["body"]);
 const authorNames = makeAuthorNames(authorRows || []);
 const currentAuthorName = authorDisplayName(profile, myAuthorKey, authorNames);
 
@@ -214,9 +215,13 @@ const deleted = Astro.url.searchParams.get("deleted");
       const status = document.getElementById("pwStatus");
       if (form) {
         const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+        const fileInput = form.querySelector('input[name="photo"]') as HTMLInputElement | null;
+        fileInput?.addEventListener("change", () => {
+          const file = fileInput.files?.[0];
+          if (status) status.textContent = file ? `Selected ${file.name}` : "";
+        });
         form.addEventListener("submit", async (event) => {
           event.preventDefault();
-          const fileInput = form.querySelector('input[name="photo"]') as HTMLInputElement | null;
           const file = fileInput?.files?.[0];
           if (!file) {
             if (status) status.textContent = "Please choose a photo to upload.";
@@ -244,6 +249,7 @@ const deleted = Astro.url.searchParams.get("deleted");
           } catch (err) {
             if (status) status.textContent = err instanceof Error ? err.message : "Upload failed.";
             if (submitBtn) submitBtn.disabled = false;
+            if (fileInput) fileInput.value = "";
           }
         });
       }

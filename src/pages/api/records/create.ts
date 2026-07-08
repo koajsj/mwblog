@@ -1,5 +1,7 @@
 import type { APIRoute } from "astro";
 import { isAllowedImageType } from "../../../lib/files";
+import { encryptPrivateText } from "../../../lib/private-data";
+import { removeStoragePaths, storageObjectExists } from "../../../lib/storage";
 import { createServiceClient } from "../../../lib/supabase";
 
 const validMoods = new Set(["happy", "loved", "calm", "tired", "down", "moody"]);
@@ -31,36 +33,55 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return json({ error: "Please choose a valid mood." }, 400);
   }
 
-  const supabase = createServiceClient();
-  const { error: insertError } = await supabase.from("life_records").insert({
-    owner_id: user.id,
-    record_on: recordOn,
-    mood,
-    body,
-  });
-
-  if (insertError) {
-    return json({ error: insertError.message }, 500);
-  }
-
+  const validPhotos: Array<{ path: string; mimeType: string }> = [];
   for (const item of photos) {
     const path = String(item?.path || "").trim();
     const mimeType = String(item?.mime_type || "").trim();
     if (!path || !path.startsWith(`${user.id}/`)) continue;
     if (mimeType && !isAllowedImageType(mimeType)) continue;
+    if (!(await storageObjectExists("photos", path))) continue;
+    validPhotos.push({ path, mimeType });
+  }
+  if (photos.length && validPhotos.length !== photos.length) {
+    await removeStoragePaths("photos", validPhotos.map((photo) => photo.path));
+    return json({ error: "One or more uploaded photos could not be verified. Please choose them again." }, 400);
+  }
 
+  const supabase = createServiceClient();
+  const { data: record, error: insertError } = await supabase
+    .from("life_records")
+    .insert({
+      owner_id: user.id,
+      record_on: recordOn,
+      mood,
+      body: encryptPrivateText(body),
+    })
+    .select("id")
+    .single();
+
+  if (insertError) {
+    await removeStoragePaths("photos", validPhotos.map((photo) => photo.path));
+    return json({ error: insertError.message }, 500);
+  }
+
+  const insertedPhotoPaths: string[] = [];
+  for (const item of validPhotos) {
     const { error: photoError } = await supabase.from("photos").insert({
       owner_id: user.id,
       title: null,
-      caption: body.slice(0, 120),
+      caption: encryptPrivateText(body.slice(0, 120)),
       taken_on: recordOn,
-      storage_path: path,
-      mime_type: mimeType || null,
+      storage_path: item.path,
+      mime_type: item.mimeType || null,
     });
 
     if (photoError) {
+      await supabase.from("photos").delete().in("storage_path", insertedPhotoPaths);
+      if (record?.id) await supabase.from("life_records").delete().eq("id", record.id);
+      await removeStoragePaths("photos", validPhotos.map((photo) => photo.path));
       return json({ error: photoError.message }, 500);
     }
+    insertedPhotoPaths.push(item.path);
   }
 
   return json({ ok: true });

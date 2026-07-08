@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { safeLocalRedirect } from "../../../lib/redirect";
+import { encryptPrivateText } from "../../../lib/private-data";
 import { createServiceClient } from "../../../lib/supabase";
 
 const validTones = new Set(["night", "desert", "forest", "sea"]);
@@ -31,8 +32,8 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const supabase = createServiceClient();
   const { error } = await supabase.from("places").insert({
     owner_id: user.id,
-    name,
-    note,
+    name: encryptPrivateText(name),
+    note: encryptPrivateText(note),
     tone,
   });
 

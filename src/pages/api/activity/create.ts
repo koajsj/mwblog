@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
 import { ACTIVITY_CATEGORIES } from "../../../lib/types";
 import { safeLocalRedirect } from "../../../lib/redirect";
+import { encryptPrivateText } from "../../../lib/private-data";
 import { createServiceClient } from "../../../lib/supabase";
 
 const fallbackCategory = ACTIVITY_CATEGORIES[ACTIVITY_CATEGORIES.length - 1];
@@ -82,7 +83,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     period: periodForTime(startTime),
     category: fallbackCategory,
     minutes,
-    body,
+    body: encryptPrivateText(body),
     start_time: startTime,
     end_time: endTime,
   });

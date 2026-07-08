@@ -460,10 +460,6 @@
       ], fail: [
         "Hmm, the door didn't open. Try again?"
       ] },
-    { test: /\/api\/auth\/register/, ok: [
-        "A new face in our corner.",
-        "Brown brought a tiny welcome cake."
-      ] },
     { test: /\/api\/auth\/logout/, ok: [
         "See you soon. Sleep well.",
         "The light stays on for next time."

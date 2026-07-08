@@ -1,6 +1,7 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createServiceClient } from "../lib/supabase";
+import { decryptPrivateRows } from "../lib/private-data";
 import { authorDisplayName } from "../lib/author-display";
 import type { AuthorKey, Place, PlaceTone } from "../lib/types";
 
@@ -12,7 +13,7 @@ const { data } = await supabase
   .select("id,owner_id,name,note,tone,created_at,updated_at,profiles(display_name,author_key)")
   .order("created_at", { ascending: false });
 
-const places = (data || []) as Place[];
+const places = decryptPrivateRows((data || []) as Place[], ["name", "note"]);
 
 const noticeError = Astro.url.searchParams.get("error");
 const created = Astro.url.searchParams.get("created");

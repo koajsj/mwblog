@@ -3,6 +3,7 @@ import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createServiceClient } from "../lib/supabase";
 import { getSupabaseEnv } from "../lib/env";
 import { attachSignedPhotoUrls } from "../lib/storage";
+import { decryptPrivateRows } from "../lib/private-data";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
 import { formatCommentTime } from "../lib/comments-display";
 import { shanghaiParts } from "../lib/datetime";
@@ -30,7 +31,7 @@ const [{ data: recordsData }, { data: photosData }, { data: authorRows }] = awai
   supabase.from("profiles").select("author_key,display_name"),
 ]);
 
-const records = (recordsData || []) as LifeRecord[];
+const records = decryptPrivateRows((recordsData || []) as LifeRecord[], ["body"]);
 const authorNames = makeAuthorNames(authorRows || []);
 
 // 一次性拉所有记录的评论，按 record_id 分组
@@ -44,14 +45,14 @@ const { data: commentRows } = recordIds.length
       .order("created_at", { ascending: true })
   : { data: [] };
 const commentsByRecord = new Map<string, Comment[]>();
-((commentRows || []) as Comment[]).forEach((c) => {
+decryptPrivateRows((commentRows || []) as Comment[], ["body"]).forEach((c) => {
   const list = commentsByRecord.get(c.target_id) || [];
   list.push(c);
   commentsByRecord.set(c.target_id, list);
 });
 const currentAuthor = (profile?.author_key || "white") as AuthorKey;
 const currentAuthorName = authorDisplayName(profile, currentAuthor, authorNames);
-const photos = await attachSignedPhotoUrls((photosData || []) as Photo[]);
+const photos = await attachSignedPhotoUrls(decryptPrivateRows((photosData || []) as Photo[], ["title", "caption"]));
 
 const photosByKey = new Map<string, typeof photos>();
 photos.forEach((photo) => {
@@ -309,7 +310,7 @@ const deleted = Astro.url.searchParams.get("deleted");
           const mood = (form.querySelector('input[name="mood"]') as HTMLInputElement | null)?.value.trim() || "happy";
           const body = (form.querySelector('textarea[name="body"]') as HTMLTextAreaElement | null)?.value.trim() || "";
           const fileInput = form.querySelector('input[name="photos"]') as HTMLInputElement | null;
-          const files = Array.from(fileInput?.files || []).filter((f) => f.type.startsWith("image/"));
+          const files = Array.from(fileInput?.files || []);
 
           if (submitBtn) submitBtn.disabled = true;
 
@@ -333,6 +334,7 @@ const deleted = Astro.url.searchParams.get("deleted");
           } catch (err) {
             if (status) status.textContent = err instanceof Error ? err.message : "Save failed.";
             if (submitBtn) submitBtn.disabled = false;
+            if (fileInput) fileInput.value = "";
           }
         });
       }

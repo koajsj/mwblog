@@ -3,6 +3,7 @@ import PrototypeLayout from "../../layouts/PrototypeLayout.astro";
 import { createServiceClient } from "../../lib/supabase";
 import { authorDisplayName, makeAuthorNames } from "../../lib/author-display";
 import { estimatedReadMinutes, markdownToPlainText } from "../../lib/markdown";
+import { decryptPrivateRows } from "../../lib/private-data";
 import { shanghaiParts } from "../../lib/datetime";
 import type { AuthorKey, BlogPost } from "../../lib/types";
 
@@ -15,7 +16,7 @@ const [{ data }, { data: authorRows }] = await Promise.all([
   supabase.from("profiles").select("author_key,display_name"),
 ]);
 
-const posts = (data || []) as BlogPost[];
+const posts = decryptPrivateRows((data || []) as BlogPost[], ["title", "excerpt", "content_markdown"]);
 const authorNames = makeAuthorNames(authorRows || []);
 const user = Astro.locals.user;
 const noticeError = Astro.url.searchParams.get("error");

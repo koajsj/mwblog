@@ -24,11 +24,30 @@ function withSecurityHeaders(response: Response) {
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("Referrer-Policy", "no-referrer");
   response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
   return response;
 }
 
+function isMutatingMethod(method: string) {
+  return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+}
+
+function isSameOriginRequest(request: Request, url: URL) {
+  const origin = request.headers.get("origin");
+  if (origin) return origin === url.origin;
+
+  const referer = request.headers.get("referer");
+  if (!referer) return false;
+
+  try {
+    return new URL(referer).origin === url.origin;
+  } catch {
+    return false;
+  }
+}
+
 export const onRequest = defineMiddleware(async (context, next) => {
-  const { cookies, url } = context;
+  const { cookies, request, url } = context;
   const hasSessionCookie = Boolean(cookies.get("cb-access-token") || cookies.get("cb-refresh-token"));
   const sessionState = await readSession(cookies);
   const accessToken = sessionState.accessToken || getAccessToken(cookies);
@@ -73,6 +92,18 @@ export const onRequest = defineMiddleware(async (context, next) => {
     return withSecurityHeaders(context.redirect("/auth/login?error=This%20account%20is%20not%20allowed."));
   }
 
+  if (
+    sessionState.user &&
+    pathname.startsWith("/api/") &&
+    isMutatingMethod(request.method) &&
+    !isSameOriginRequest(request, url)
+  ) {
+    return withSecurityHeaders(new Response(JSON.stringify({ error: "Invalid request origin." }), {
+      status: 403,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    }));
+  }
+
   if (sessionState.user && authPages.includes(pathname)) {
     return withSecurityHeaders(context.redirect("/?skipCover=1#home"));
   }
@@ -82,6 +113,9 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   if (hasSessionCookie || isPrivatePagePath(pathname)) {
     response.headers.set("Cache-Control", "no-store");
+  }
+  if (url.protocol === "https:") {
+    response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
 
   return response;

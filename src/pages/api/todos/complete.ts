@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import { decryptPrivateFields, decryptPrivateText, encryptPrivateText } from "../../../lib/private-data";
 import { createServiceClient } from "../../../lib/supabase";
 import {
   TODO_ACTIVITY_CATEGORY,
@@ -56,7 +57,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     period: periodForTime(range.start_time),
     category: TODO_ACTIVITY_CATEGORY,
     minutes: range.minutes,
-    body: todo.title,
+    body: encryptPrivateText(decryptPrivateText(todo.title)),
     start_time: range.start_time,
     end_time: range.end_time,
   }));
@@ -100,5 +101,5 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   if (error) return json({ error: error.message }, 500);
   if (!data) return json({ error: "Task not found." }, 404);
-  return json({ todo: data });
+  return json({ todo: decryptPrivateFields(data, ["title"]) });
 };

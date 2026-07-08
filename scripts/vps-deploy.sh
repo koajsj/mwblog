@@ -24,6 +24,35 @@ need_env() {
   fi
 }
 
+prompt_env() {
+  local name="$1"
+  local label="$2"
+  if [ -n "${!name:-}" ]; then
+    return
+  fi
+  if [ ! -r /dev/tty ]; then
+    need_env "$name"
+  fi
+  printf "%s: " "$label" >/dev/tty
+  IFS= read -r "$name" </dev/tty
+  export "$name"
+  need_env "$name"
+}
+
+generate_encryption_key() {
+  node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+}
+
+ensure_env_line() {
+  local name="$1"
+  local value="$2"
+  if grep -q "^${name}=" "$APP_DIR/.env" 2>/dev/null; then
+    return
+  fi
+  umask 077
+  printf "\n%s=%s\n" "$name" "$value" >> "$APP_DIR/.env"
+}
+
 install_system_packages() {
   $SUDO apt-get update
   $SUDO apt-get install -y ca-certificates curl gnupg git nginx
@@ -53,19 +82,24 @@ checkout_code() {
 write_env_file() {
   if [ -f "$APP_DIR/.env" ]; then
     echo "Keeping existing $APP_DIR/.env"
+    ensure_env_line "APP_ENCRYPTION_KEY" "$(generate_encryption_key)"
+    chmod 600 "$APP_DIR/.env"
     return
   fi
 
-  need_env SUPABASE_URL
-  need_env SUPABASE_ANON_KEY
-  need_env SUPABASE_SERVICE_ROLE_KEY
+  prompt_env SUPABASE_URL "Supabase URL"
+  prompt_env SUPABASE_ANON_KEY "Supabase anon key"
+  prompt_env SUPABASE_SERVICE_ROLE_KEY "Supabase service role key"
+  APP_ENCRYPTION_KEY="${APP_ENCRYPTION_KEY:-$(generate_encryption_key)}"
 
   umask 077
   cat > "$APP_DIR/.env" <<EOF
 SUPABASE_URL=${SUPABASE_URL}
 SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
 SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY}
 EOF
+  chmod 600 "$APP_DIR/.env"
 }
 
 build_app() {
@@ -73,6 +107,9 @@ build_app() {
   npm install --package-lock=false
   if [ "$RUN_SETUP_USERS" = "1" ]; then
     npm run setup:users
+  fi
+  if ! npm run encrypt:existing; then
+    echo "Existing-data encryption skipped. Apply Supabase migrations 014/015, then run: cd ${APP_DIR} && npm run encrypt:existing" >&2
   fi
   npm run build
 }
@@ -150,6 +187,7 @@ install_nginx_site
 
 echo "Deployment complete."
 echo "Service: systemctl status ${APP_NAME}"
+echo "Important: back up ${APP_DIR}/.env. APP_ENCRYPTION_KEY is required to read encrypted private content."
 if [ -n "$DOMAIN" ]; then
   echo "URL: http://${DOMAIN}"
 else

@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import { encryptNullablePrivateText } from "../../../lib/private-data";
 import { createServiceClient } from "../../../lib/supabase";
 
 function todayStr() {
@@ -29,8 +30,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   // 空字符串 = 清空（回到默认占位）
   const payload =
     field === "mood"
-      ? { mood_text: value || null, mood_date: value ? todayStr() : null }
-      : { doing_text: value || null, doing_date: value ? todayStr() : null };
+      ? { mood_text: encryptNullablePrivateText(value), mood_date: value ? todayStr() : null }
+      : { doing_text: encryptNullablePrivateText(value), doing_date: value ? todayStr() : null };
 
   const { error } = await supabase.from("profiles").update(payload).eq("id", user.id);
   if (error) {
