@@ -12,7 +12,9 @@
     "preview": "astro preview",
     "astro": "astro",
     "setup:users": "node scripts/setup-fixed-users.mjs",
-    "encrypt:existing": "node scripts/encrypt-existing-data.mjs"
+    "encrypt:existing": "node scripts/encrypt-existing-data.mjs",
+    "backup": "node scripts/backup-site.mjs",
+    "backup:decrypt": "node scripts/decrypt-backup.mjs"
   },
   "dependencies": {
     "@astrojs/node": "^10.0.0",

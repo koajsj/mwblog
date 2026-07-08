@@ -83,6 +83,7 @@ write_env_file() {
   if [ -f "$APP_DIR/.env" ]; then
     echo "Keeping existing $APP_DIR/.env"
     ensure_env_line "APP_ENCRYPTION_KEY" "$(generate_encryption_key)"
+    ensure_env_line "BACKUP_ENCRYPTION_KEY" "$(generate_encryption_key)"
     chmod 600 "$APP_DIR/.env"
     return
   fi
@@ -91,6 +92,7 @@ write_env_file() {
   prompt_env SUPABASE_ANON_KEY "Supabase anon key"
   prompt_env SUPABASE_SERVICE_ROLE_KEY "Supabase service role key"
   APP_ENCRYPTION_KEY="${APP_ENCRYPTION_KEY:-$(generate_encryption_key)}"
+  BACKUP_ENCRYPTION_KEY="${BACKUP_ENCRYPTION_KEY:-$(generate_encryption_key)}"
 
   umask 077
   cat > "$APP_DIR/.env" <<EOF
@@ -98,6 +100,7 @@ SUPABASE_URL=${SUPABASE_URL}
 SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
 SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
 APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY}
+BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY}
 EOF
   chmod 600 "$APP_DIR/.env"
 }
@@ -178,16 +181,46 @@ EOF
   fi
 }
 
+install_backup_timer() {
+  $SUDO tee "/etc/systemd/system/${APP_NAME}-backup.service" >/dev/null <<EOF
+[Unit]
+Description=${APP_NAME} encrypted backup
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=${APP_DIR}
+ExecStart=/usr/bin/env bash ${APP_DIR}/scripts/vps-backup.sh
+EOF
+
+  $SUDO tee "/etc/systemd/system/${APP_NAME}-backup.timer" >/dev/null <<EOF
+[Unit]
+Description=Daily ${APP_NAME} encrypted backup
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  $SUDO systemctl daemon-reload
+  $SUDO systemctl enable --now "${APP_NAME}-backup.timer"
+}
+
 install_system_packages
 checkout_code
 write_env_file
 build_app
 install_systemd_service
 install_nginx_site
+install_backup_timer
 
 echo "Deployment complete."
 echo "Service: systemctl status ${APP_NAME}"
-echo "Important: back up ${APP_DIR}/.env. APP_ENCRYPTION_KEY is required to read encrypted private content."
+echo "Backup timer: systemctl status ${APP_NAME}-backup.timer"
+echo "Important: save APP_ENCRYPTION_KEY and BACKUP_ENCRYPTION_KEY from ${APP_DIR}/.env outside the VPS."
 if [ -n "$DOMAIN" ]; then
   echo "URL: http://${DOMAIN}"
 else

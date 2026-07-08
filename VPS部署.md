@@ -24,15 +24,39 @@ curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-depl
 sudo /opt/mwblog/scripts/vps-update.sh
 ```
 
-## 必做备份
+## 自动备份
 
-备份 VPS 上的这个文件：
+部署和更新脚本会自动安装每天 03:20 运行的加密备份任务。手动备份可以执行：
 
-```text
-/opt/mwblog/.env
+```bash
+sudo /opt/mwblog/scripts/vps-backup.sh
 ```
 
-里面的 `APP_ENCRYPTION_KEY` 用来解密网站私密内容。密钥丢失后，已经加密入库的内容无法恢复。
+备份文件默认保存在：
+
+```text
+/var/backups/mwblog/
+```
+
+备份包包含数据库导出、照片/Markdown 文件、以及恢复必需的 `.env` 副本，并且会加密成 `*.tar.gz.enc`。
+
+第一次部署后，请至少把这两个恢复码保存到 VPS 之外，比如自己的电脑或密码管理器：
+
+```bash
+sudo grep -E '^(APP_ENCRYPTION_KEY|BACKUP_ENCRYPTION_KEY)=' /opt/mwblog/.env
+```
+
+`APP_ENCRYPTION_KEY` 用来解密网站私密文本；`BACKUP_ENCRYPTION_KEY` 用来解密备份包。两个都丢了，已加密内容就无法恢复。
+
+检查备份能不能解密：
+
+```bash
+cd /opt/mwblog
+sudo BACKUP_DIR=/var/backups/mwblog npm run backup:decrypt -- /var/backups/mwblog/你的备份文件.tar.gz.enc /tmp/mwblog-backup.tar.gz
+sudo tar -tzf /tmp/mwblog-backup.tar.gz | head
+```
+
+建议定期把 `/var/backups/mwblog/*.enc` 下载到自己电脑。只放在同一台 VPS 上，VPS 坏掉时也会一起丢。
 
 ## Supabase 迁移
 

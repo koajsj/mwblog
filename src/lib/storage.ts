@@ -11,15 +11,13 @@ async function ensureBucket(
   const { data } = await service.storage.getBucket(name);
 
   if (data) {
-    if (data.public !== options.public) {
-      const { error } = await service.storage.updateBucket(name, {
-        public: options.public,
-        fileSizeLimit: options.fileSizeLimit,
-        allowedMimeTypes: options.allowedMimeTypes,
-      });
-      if (error) {
-        throw new Error(`Failed to update storage bucket ${name}: ${error.message}`);
-      }
+    const { error } = await service.storage.updateBucket(name, {
+      public: options.public,
+      fileSizeLimit: options.fileSizeLimit,
+      allowedMimeTypes: options.allowedMimeTypes,
+    });
+    if (error) {
+      throw new Error(`Failed to update storage bucket ${name}: ${error.message}`);
     }
     return;
   }
