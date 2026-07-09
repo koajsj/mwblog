@@ -116,6 +116,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       .in("storage_path", validPhotoPaths);
 
     if (existingPhotosError) {
+      await removeStoragePaths("photos", pendingPhotoPaths);
       return json({ error: existingPhotosError.message }, 500);
     }
 

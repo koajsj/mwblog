@@ -84,6 +84,7 @@ function rangeMinutes(range: CompletionRange) {
   if (!isClock(range.start) || !isClock(range.end)) return 0;
   const start = minutesOfClock(range.start);
   const end = minutesOfClock(range.end);
+  if (end === start) return 0;
   return end > start ? end - start : end + 1440 - start;
 }
 
@@ -258,6 +259,10 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
       }));
       if (!normalizedRanges.length || normalizedRanges.some((range) => !isClock(range.start_time) || !isClock(range.end_time))) {
         setCompletionMessage("Use 24-hour time like 09:30 or 18:05.");
+        return;
+      }
+      if (normalizedRanges.some((range) => range.start_time === range.end_time)) {
+        setCompletionMessage("End time must be different from start time.");
         return;
       }
       for (const id of completionIds) {

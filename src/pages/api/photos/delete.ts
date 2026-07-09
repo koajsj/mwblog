@@ -32,11 +32,6 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Photo not found, or it does not belong to the current account")}`, 303);
   }
 
-  const { error: storageError } = await supabase.storage.from("photos").remove([photo.storage_path]);
-  if (storageError && !/not found/i.test(storageError.message)) {
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(storageError.message)}`, 303);
-  }
-
   const { error: deleteError } = await supabase
     .from("photos")
     .delete()
@@ -45,6 +40,11 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
 
   if (deleteError) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(deleteError.message)}`, 303);
+  }
+
+  const { error: storageError } = await supabase.storage.from("photos").remove([photo.storage_path]);
+  if (storageError && !/not found/i.test(storageError.message)) {
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(storageError.message)}`, 303);
   }
 
   return redirect(`${safeReturn}${sep}deleted=photo`, 303);

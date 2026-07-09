@@ -32,13 +32,6 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Post not found, or it does not belong to the current account")}`, 303);
   }
 
-  if (post.storage_path) {
-    const { error: storageError } = await supabase.storage.from("blog-markdown").remove([post.storage_path]);
-    if (storageError && !/not found/i.test(storageError.message)) {
-      return redirect(`${safeReturn}${sep}error=${encodeURIComponent(storageError.message)}`, 303);
-    }
-  }
-
   const { error: deleteError } = await supabase
     .from("blog_posts")
     .delete()
@@ -47,6 +40,13 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
 
   if (deleteError) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(deleteError.message)}`, 303);
+  }
+
+  if (post.storage_path) {
+    const { error: storageError } = await supabase.storage.from("blog-markdown").remove([post.storage_path]);
+    if (storageError && !/not found/i.test(storageError.message)) {
+      return redirect(`${safeReturn}${sep}error=${encodeURIComponent(storageError.message)}`, 303);
+    }
   }
 
   return redirect(`${safeReturn}${sep}deleted=post`, 303);

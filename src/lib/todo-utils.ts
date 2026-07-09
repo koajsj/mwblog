@@ -1,5 +1,5 @@
-import { ACTIVITY_CATEGORIES } from "./types";
-import { isDateKey } from "./datetime";
+import { ACTIVITY_CATEGORIES } from "./types.ts";
+import { isDateKey } from "./datetime.ts";
 
 export const TODO_ACTIVITY_CATEGORY = ACTIVITY_CATEGORIES[ACTIVITY_CATEGORIES.length - 1];
 
@@ -34,6 +34,7 @@ export function minutesOfClock(value: string) {
 export function durationMinutes(startTime: string, endTime: string) {
   const start = minutesOfClock(startTime);
   const end = minutesOfClock(endTime);
+  if (end === start) return 0;
   return end > start ? end - start : end + 1440 - start;
 }
 

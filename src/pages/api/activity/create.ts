@@ -26,6 +26,7 @@ function minutesOfClock(value: string) {
 function durationMinutes(startTime: string, endTime: string) {
   const start = minutesOfClock(startTime);
   const end = minutesOfClock(endTime);
+  if (end === start) return 0;
   return end > start ? end - start : end + 1440 - start;
 }
 
