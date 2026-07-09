@@ -4,6 +4,7 @@ import { createServiceClient } from "../lib/supabase";
 import { attachPrivatePhotoUrls } from "../lib/storage";
 import { markdownToPlainText } from "../lib/markdown";
 import { decryptPrivateRows } from "../lib/private-data";
+import { shanghaiDateKey } from "../lib/datetime";
 import { AUTHOR_LABELS } from "../lib/types";
 import type { AuthorKey, BlogPost, Photo, Place, PlaceTone, Profile } from "../lib/types";
 
@@ -50,11 +51,7 @@ const brownWeather = brownProfile?.weather_text || "";
 const currentWeatherWho = user ? profile?.author_key || "" : "";
 
 // mood / doing 当日才有效，过期就回到默认占位
-const todayKey = (() => {
-  const d = new Date();
-  const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-})();
+const todayKey = shanghaiDateKey();
 const todayField = (p: Profile | undefined, field: "mood" | "doing") => {
   if (!p) return "";
   const date = field === "mood" ? p.mood_date : p.doing_date;

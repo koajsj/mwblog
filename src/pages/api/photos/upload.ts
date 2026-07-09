@@ -4,6 +4,7 @@ import { encryptNullablePrivateText } from "../../../lib/private-data";
 import { encryptPrivateFile } from "../../../lib/private-files";
 import { ensureStorageBuckets } from "../../../lib/storage";
 import { safeLocalRedirect } from "../../../lib/redirect";
+import { isDateKey } from "../../../lib/datetime";
 import { createServiceClient } from "../../../lib/supabase";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
@@ -28,6 +29,9 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   }
   if (file.size > MAX_PHOTO_BYTES) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Photos must be 50 MB or smaller.")}`, 303);
+  }
+  if (takenOn && !isDateKey(takenOn)) {
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Please choose a valid date.")}`, 303);
   }
 
   const supabase = createServiceClient();

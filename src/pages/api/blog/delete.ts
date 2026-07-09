@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import { safeLocalRedirect } from "../../../lib/redirect";
 import { createServiceClient } from "../../../lib/supabase";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
@@ -8,7 +9,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const form = await request.formData();
   const id = String(form.get("id") || "");
   const rawReturn = String(form.get("return_to") || "").trim();
-  const safeReturn = rawReturn.startsWith("/") && !rawReturn.startsWith("//") ? rawReturn : "/blog";
+  const safeReturn = safeLocalRedirect(rawReturn, "/blog");
   const sep = safeReturn.includes("?") ? "&" : "?";
 
   if (!id) {

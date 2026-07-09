@@ -5,7 +5,7 @@ import { attachPrivatePhotoUrls } from "../lib/storage";
 import { decryptPrivateRows } from "../lib/private-data";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
 import { formatCommentTime } from "../lib/comments-display";
-import { shanghaiParts } from "../lib/datetime";
+import { shanghaiDateKey, shanghaiParts } from "../lib/datetime";
 import { MOOD_LABELS } from "../lib/types";
 import type { AuthorKey, Comment, LifeRecord, Photo } from "../lib/types";
 
@@ -80,7 +80,7 @@ function recordTime(value: string) {
   return p ? `${p.hour}:${p.minute}` : "";
 }
 
-const today = new Date().toISOString().slice(0, 10);
+const today = shanghaiDateKey();
 const moods: Array<{ key: string; label: string }> = [
   { key: "happy", label: "😄 Happy" },
   { key: "loved", label: "🥰 Loved" },

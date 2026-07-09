@@ -29,6 +29,16 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   }
 
   const supabase = createServiceClient();
+  const targetTable = targetType === "blog" ? "blog_posts" : "life_records";
+  const { data: target, error: targetError } = await supabase
+    .from(targetTable)
+    .select("id")
+    .eq("id", targetId)
+    .maybeSingle();
+
+  if (targetError) return errorRedirect(targetError.message);
+  if (!target) return errorRedirect("Comment target was not found.");
+
   const { error } = await supabase.from("comments").insert({
     target_type: targetType,
     target_id: targetId,

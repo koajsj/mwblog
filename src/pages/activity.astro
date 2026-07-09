@@ -3,13 +3,14 @@ import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createServiceClient } from "../lib/supabase";
 import { decryptPrivateRows } from "../lib/private-data";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
+import { isDateKey, shanghaiDateKey } from "../lib/datetime";
 import { ACTIVITY_PERIODS, AUTHOR_COLORS } from "../lib/types";
 import type { ActivityEntry, AuthorKey } from "../lib/types";
 
 const supabase = createServiceClient();
-const todayKey = new Date().toISOString().slice(0, 10);
+const todayKey = shanghaiDateKey();
 const requestedDate = Astro.url.searchParams.get("date") || todayKey;
-const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : todayKey;
+const selectedDate = isDateKey(requestedDate) ? requestedDate : todayKey;
 const requestedMonth = Astro.url.searchParams.get("month") || selectedDate.slice(0, 7);
 const monthHit = requestedMonth.match(/^(\d{4})-(\d{2})$/);
 const selectedMonth = monthHit && Number(monthHit[2]) >= 1 && Number(monthHit[2]) <= 12 ? requestedMonth : selectedDate.slice(0, 7);

@@ -2,6 +2,7 @@ import type { APIRoute } from "astro";
 import { createServiceClient } from "../../../lib/supabase";
 import { isAllowedImageType } from "../../../lib/files";
 import { encryptNullablePrivateText } from "../../../lib/private-data";
+import { isDateKey } from "../../../lib/datetime";
 import { removeStoragePaths, storageObjectExists } from "../../../lib/storage";
 
 function json(body: unknown, status = 200) {
@@ -28,9 +29,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return json({ error: "Invalid upload path." }, 400);
   }
   if (mimeType && !isAllowedImageType(mimeType)) {
+    await removeStoragePaths("photos", [path]);
     return json({ error: "Only image files can be uploaded." }, 400);
   }
-  if (takenOn && !/^\d{4}-\d{2}-\d{2}$/.test(takenOn)) {
+  if (takenOn && !isDateKey(takenOn)) {
+    await removeStoragePaths("photos", [path]);
     return json({ error: "Please choose a valid date." }, 400);
   }
   if (!(await storageObjectExists("photos", path))) {
@@ -38,6 +41,20 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   const supabase = createServiceClient();
+  const { data: existingPhoto, error: existingError } = await supabase
+    .from("photos")
+    .select("id")
+    .eq("storage_path", path)
+    .maybeSingle();
+
+  if (existingError) {
+    await removeStoragePaths("photos", [path]);
+    return json({ error: existingError.message }, 500);
+  }
+  if (existingPhoto) {
+    return json({ error: "This uploaded photo has already been saved." }, 400);
+  }
+
   const { error: insertError } = await supabase.from("photos").insert({
     owner_id: user.id,
     title: encryptNullablePrivateText(title),

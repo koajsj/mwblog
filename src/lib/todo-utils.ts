@@ -1,4 +1,5 @@
 import { ACTIVITY_CATEGORIES } from "./types";
+import { isDateKey } from "./datetime";
 
 export const TODO_ACTIVITY_CATEGORY = ACTIVITY_CATEGORIES[ACTIVITY_CATEGORIES.length - 1];
 
@@ -11,7 +12,7 @@ export function json(data: unknown, status = 200) {
 
 export function normalizeDate(value: FormDataEntryValue | string | null) {
   const raw = String(value || "").trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+  return isDateKey(raw) ? raw : null;
 }
 
 export function normalizeTime(value: FormDataEntryValue | string | null) {

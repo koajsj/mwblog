@@ -70,6 +70,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const activityEntryIds = (activities || []).map((activity: { id: string }) => activity.id);
   const activityEntryId = activityEntryIds[0] || null;
+  const rollbackActivities = async () => {
+    if (!activityEntryIds.length) return;
+    await supabase.from("activity_entries").delete().in("id", activityEntryIds).eq("owner_id", user.id);
+  };
 
   if (activityEntryIds.length) {
     const { error: linkError } = await supabase.from("todo_activity_entries").insert(
@@ -79,6 +83,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       })),
     );
     if (linkError && !isMissingTodoActivityLinkTable(linkError)) {
+      await rollbackActivities();
       return json({ error: linkError.message }, 500);
     }
   }
@@ -99,7 +104,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
     .select("id,owner_id,title,completed,completed_on,completed_start_time,completed_end_time,completed_minutes,activity_entry_id,archived_at,created_at,updated_at,profiles(display_name,author_key)")
     .maybeSingle();
 
-  if (error) return json({ error: error.message }, 500);
-  if (!data) return json({ error: "Task not found." }, 404);
+  if (error) {
+    await rollbackActivities();
+    return json({ error: error.message }, 500);
+  }
+  if (!data) {
+    await rollbackActivities();
+    return json({ error: "Task not found." }, 404);
+  }
   return json({ todo: decryptPrivateFields(data, ["title"]) });
 };

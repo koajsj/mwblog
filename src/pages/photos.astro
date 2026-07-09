@@ -4,6 +4,7 @@ import { createServiceClient } from "../lib/supabase";
 import { attachPrivatePhotoUrls } from "../lib/storage";
 import { decryptPrivateRows } from "../lib/private-data";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
+import { shanghaiDateKey } from "../lib/datetime";
 import { MOOD_LABELS } from "../lib/types";
 import type { AuthorKey, LifeRecord, Photo } from "../lib/types";
 
@@ -37,7 +38,7 @@ records.forEach((r) => {
 
 const byDate = new Map<string, typeof photos>();
 photos.forEach((p) => {
-  const key = p.taken_on || p.created_at.slice(0, 10);
+  const key = p.taken_on || shanghaiDateKey(p.created_at);
   const list = byDate.get(key) || [];
   list.push(p);
   byDate.set(key, list);
@@ -49,7 +50,7 @@ function prettyDate(value: string) {
   return `${Number(mm)}/${Number(dd)}`;
 }
 
-const today = new Date().toISOString().slice(0, 10);
+const today = shanghaiDateKey();
 
 // 把详情视图所需的数据序列化，给客户端 JS 使用
 const photoBundles: Record<string, Array<{

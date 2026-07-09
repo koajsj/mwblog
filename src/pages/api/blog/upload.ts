@@ -50,6 +50,19 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
   const supabase = createServiceClient();
   const storageName = storageSafeName(slug, "post");
   const storagePath = `${user.id}/${storageName}-${Date.now()}-${crypto.randomUUID()}.md`;
+  const { data: existingPost, error: existingError } = await supabase
+    .from("blog_posts")
+    .select("id,author_id,storage_path")
+    .eq("slug", slug)
+    .maybeSingle();
+
+  if (existingError) {
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(existingError.message)}`, 303);
+  }
+
+  if (existingPost && existingPost.author_id !== user.id) {
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("This post slug is already used by another account.")}`, 303);
+  }
 
   try {
     await ensureStorageBuckets();
@@ -85,6 +98,10 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
   if (upsertError) {
     await supabase.storage.from("blog-markdown").remove([storagePath]);
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(upsertError.message)}`, 303);
+  }
+
+  if (existingPost?.storage_path && existingPost.storage_path !== storagePath) {
+    await supabase.storage.from("blog-markdown").remove([existingPost.storage_path]);
   }
 
   return redirect(`/blog/${encodeURIComponent(slug)}`, 303);

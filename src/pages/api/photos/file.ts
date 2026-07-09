@@ -32,10 +32,10 @@ export const GET: APIRoute = async ({ url, locals }) => {
   }
 
   try {
-    const decrypted = decryptPrivateFile(Buffer.from(await file.arrayBuffer()), photo.mime_type || file.type);
-    return new Response(decrypted.buffer, {
+    const { buffer, mimeType } = decryptPrivateFile(Buffer.from(await file.arrayBuffer()), photo.mime_type || file.type);
+    return new Response(buffer, {
       headers: {
-        "content-type": decrypted.mimeType,
+        "content-type": mimeType,
         "cache-control": "no-store",
         "x-content-type-options": "nosniff",
       },
