@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceClient } from "./supabase";
 
 let checked = false;
@@ -57,15 +58,14 @@ export async function attachPrivatePhotoUrls<T extends { id: string; storage_pat
   }));
 }
 
-export async function storageObjectExists(bucket: string, path: string) {
+export async function storageObjectExists(supabase: SupabaseClient, bucket: string, path: string) {
   const cleanPath = path.replace(/^\/+/, "");
   const slash = cleanPath.lastIndexOf("/");
   const folder = slash >= 0 ? cleanPath.slice(0, slash) : "";
   const filename = slash >= 0 ? cleanPath.slice(slash + 1) : cleanPath;
   if (!filename) return false;
 
-  const service = createServiceClient();
-  const { data, error } = await service.storage.from(bucket).list(folder, {
+  const { data, error } = await supabase.storage.from(bucket).list(folder, {
     limit: 1,
     search: filename,
   });
@@ -74,8 +74,8 @@ export async function storageObjectExists(bucket: string, path: string) {
   return Boolean((data || []).some((item) => item.name === filename));
 }
 
-export async function removeStoragePaths(bucket: string, paths: string[]) {
+export async function removeStoragePaths(supabase: SupabaseClient, bucket: string, paths: string[]) {
   const cleanPaths = paths.map((path) => path.trim()).filter(Boolean);
   if (!cleanPaths.length) return;
-  await createServiceClient().storage.from(bucket).remove(cleanPaths);
+  await supabase.storage.from(bucket).remove(cleanPaths);
 }

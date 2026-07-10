@@ -18,9 +18,9 @@ function escapeAttr(input: string) {
 }
 
 function isSafeUrl(input: string) {
-  const value = input.trim();
-  if (value.startsWith("//")) return false;
-  return /^(https?:|mailto:|\/|#|\.\/|\.\.\/)/i.test(value);
+  if (!input) return false;
+  if (input.startsWith("//")) return false;
+  return /^(https?:|mailto:|\/(?!\/)|#|\.\/|\.\.\/)/i.test(input);
 }
 
 function inlineMarkdown(input: string) {
@@ -317,22 +317,15 @@ export interface ArticleSection {
 export function renderArticleSections(source: string): ArticleSection[] {
   const lines = source.replace(/\r\n/g, "\n").split("\n");
   const sections: ArticleSection[] = [];
-  const seenIds = new Map<string, number>();
   let currentTitle = "";
   let currentLines: string[] = [];
   let counter = 0;
 
-  function uniqueSectionId(title: string) {
-    const base = title ? slugify(title) : `section-${counter}`;
-    const count = seenIds.get(base) || 0;
-    seenIds.set(base, count + 1);
-    return count ? `${base}-${count + 1}` : base;
-  }
-
   function pushSection(title: string, body: string[]) {
     counter += 1;
+    const id = slugify(title) || `section-${counter}`;
     sections.push({
-      id: uniqueSectionId(title),
+      id,
       title: title || "Content",
       html: renderMarkdown(body.join("\n")),
     });

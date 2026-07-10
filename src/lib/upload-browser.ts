@@ -14,8 +14,14 @@ export async function uploadImageFile(file: File): Promise<UploadedPhoto> {
     throw new Error("Photos must be 50 MB or smaller.");
   }
 
+  const privateSpace = (window as any).OurNestPrivate;
+  if (!privateSpace?.encryptFile) {
+    throw new Error("Private-space encryption is not ready.");
+  }
+  const encrypted = await privateSpace.encryptFile(file);
+
   const form = new FormData();
-  form.set("photo", file);
+  form.set("photo", encrypted.blob, `${file.name || "photo"}.enc`);
 
   const uploadRes = await fetch("/api/photos/sign-upload", {
     method: "POST",
@@ -27,5 +33,6 @@ export async function uploadImageFile(file: File): Promise<UploadedPhoto> {
     throw new Error(data.error || "Could not start the upload.");
   }
 
-  return uploadRes.json();
+  const data = await uploadRes.json();
+  return { ...data, mime_type: encrypted.mimeType };
 }

@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
 import { safeLocalRedirect } from "../../../lib/redirect";
-import { createServiceClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/supabase";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const user = locals.user;
@@ -15,7 +15,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Missing comment id.")}`, 303);
   }
 
-  const supabase = createServiceClient();
+  const supabase = createLocalsClient(locals);
   // 只能删自己的评论
   const { error } = await supabase
     .from("comments")

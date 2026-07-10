@@ -41,11 +41,13 @@
   }, true);
 
   document.addEventListener("submit", function (event) {
-    if (event.defaultPrevented) return;
     var form = event.target;
     if (!form || form.target && form.target !== "_self") return;
-    root.classList.add("site-loading", "site-leaving");
-    root.classList.remove("site-loaded");
+    queueMicrotask(function () {
+      if (event.defaultPrevented) return;
+      root.classList.add("site-loading", "site-leaving");
+      root.classList.remove("site-loaded");
+    });
   });
 
   if (document.readyState === "complete") {

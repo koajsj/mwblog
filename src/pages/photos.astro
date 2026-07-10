@@ -1,14 +1,12 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
-import { createServiceClient } from "../lib/supabase";
-import { attachPrivatePhotoUrls } from "../lib/storage";
-import { decryptPrivateRows } from "../lib/private-data";
+import { createLocalsClient } from "../lib/supabase";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
-import { shanghaiDateKey } from "../lib/datetime";
+import { serializeJsonForScript } from "../lib/security";
 import { MOOD_LABELS } from "../lib/types";
 import type { AuthorKey, LifeRecord, Photo } from "../lib/types";
 
-const supabase = createServiceClient();
+const supabase = createLocalsClient(Astro.locals);
 const user = Astro.locals.user;
 const profile = Astro.locals.profile;
 const myAuthorKey = (profile?.author_key || "white") as AuthorKey;
@@ -25,8 +23,8 @@ const [{ data: photosData }, { data: recordsData }, { data: authorRows }] = awai
   supabase.from("profiles").select("author_key,display_name"),
 ]);
 
-const photos = await attachPrivatePhotoUrls(decryptPrivateRows((photosData || []) as Photo[], ["title", "caption"]));
-const records = decryptPrivateRows((recordsData || []) as LifeRecord[], ["body"]);
+const photos = (photosData || []) as Photo[];
+const records = (recordsData || []) as LifeRecord[];
 const authorNames = makeAuthorNames(authorRows || []);
 const currentAuthorName = authorDisplayName(profile, myAuthorKey, authorNames);
 
@@ -38,7 +36,7 @@ records.forEach((r) => {
 
 const byDate = new Map<string, typeof photos>();
 photos.forEach((p) => {
-  const key = p.taken_on || shanghaiDateKey(p.created_at);
+  const key = p.taken_on || p.created_at.slice(0, 10);
   const list = byDate.get(key) || [];
   list.push(p);
   byDate.set(key, list);
@@ -50,7 +48,7 @@ function prettyDate(value: string) {
   return `${Number(mm)}/${Number(dd)}`;
 }
 
-const today = shanghaiDateKey();
+const today = new Date().toISOString().slice(0, 10);
 
 // 把详情视图所需的数据序列化，给客户端 JS 使用
 const photoBundles: Record<string, Array<{
@@ -68,7 +66,7 @@ dates.forEach((date) => {
     const diary = recordByKey.get(`${who}|${date}`);
     return {
       id: p.id,
-      url: p.publicUrl!,
+      url: `/api/photos/file?id=${encodeURIComponent(p.id)}`,
       title: p.title,
       caption: p.caption,
       who,
@@ -97,9 +95,9 @@ const deleted = Astro.url.searchParams.get("deleted");
       <header class="pw-header">
         <h1 class="pw-title">📷 Photos</h1>
         <p class="pw-subtitle">Keeping everyday moments in pictures</p>
-        {noticeError && <p style="margin-top:14px;color:#9d3f3f;background:rgba(255,242,242,.8);padding:10px 14px;border-radius:12px;display:inline-block;">{noticeError}</p>}
-        {uploaded === "photo" && <p style="margin-top:14px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Photo uploaded.</p>}
-        {deleted === "photo" && <p style="margin-top:14px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Photo deleted.</p>}
+        {noticeError && <p class="site-notice site-notice--error" role="alert">{noticeError}</p>}
+        {uploaded === "photo" && <p class="site-notice" role="status">Photo uploaded.</p>}
+        {deleted === "photo" && <p class="site-notice" role="status">Photo deleted.</p>}
       </header>
       <div class="pw-toolbar">
         {user ? (
@@ -123,7 +121,7 @@ const deleted = Astro.url.searchParams.get("deleted");
                   const ty = (Math.random() * 10 - 5).toFixed(1);
                   return (
                     <span class="pw-stack__layer" style={`--rot:${rot}deg;--tx:${tx}px;--ty:${ty}px;z-index:${10 - idx}`}>
-                      <img src={photo.publicUrl} alt={photo.title || "Photo"} loading="lazy" />
+                      <img data-private-photo={`/api/photos/file?id=${encodeURIComponent(photo.id)}`} alt="Private photo" loading="lazy" />
                     </span>
                   );
                 })}
@@ -174,12 +172,12 @@ const deleted = Astro.url.searchParams.get("deleted");
         </div>
         <label class="pw-filebtn">
           ＋ Choose photo
-          <input type="file" name="photo" accept="image/*" required hidden />
+          <input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/gif" required hidden />
         </label>
-        <p class="pw-modal__status" id="pwStatus"></p>
-        <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
+        <p class="pw-modal__status" id="pwStatus" role="status" aria-live="polite"></p>
+        <div class="pw-modal__actions">
           <button class="pw-modal__close" id="pwModalClose" type="button">Cancel</button>
-          <button class="pw-modal__close" type="submit" style="background:#7aa6d4;color:#fff;border-color:#7aa6d4;">Save</button>
+          <button class="pw-modal__close pw-modal__save" type="submit">Save</button>
         </div>
       </form>
     </div>
@@ -203,7 +201,7 @@ const deleted = Astro.url.searchParams.get("deleted");
     )}
   </div>
 
-  <script id="photoBundles" type="application/json" set:html={JSON.stringify(photoBundles)}></script>
+  <script id="photoBundles" type="application/json" set:html={serializeJsonForScript(photoBundles)}></script>
   {user && (
     <script>
       import { uploadImageFile } from "../lib/upload-browser";
@@ -228,15 +226,20 @@ const deleted = Astro.url.searchParams.get("deleted");
           const title = (form.querySelector('input[name="title"]') as HTMLInputElement | null)?.value.trim() || "";
           const takenOn = (form.querySelector('input[name="taken_on"]') as HTMLInputElement | null)?.value.trim() || "";
 
-          if (submitBtn) submitBtn.disabled = true;
+          if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.setAttribute("aria-busy", "true");
+          }
           if (status) status.textContent = "Uploading…";
 
           try {
             const { path, mime_type } = await uploadImageFile(file);
+            const privateSpace = (window as any).OurNestPrivate;
+            if (!privateSpace?.encryptText) throw new Error("Private-space encryption is not ready.");
             const res = await fetch("/api/photos/commit", {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ path, mime_type, title, taken_on: takenOn }),
+              body: JSON.stringify({ path, mime_type, title: title ? await privateSpace.encryptText(title) : "", taken_on: takenOn }),
             });
             if (!res.ok) {
               const data = await res.json().catch(() => ({}));
@@ -245,8 +248,10 @@ const deleted = Astro.url.searchParams.get("deleted");
             window.location.href = "/photos?uploaded=photo";
           } catch (err) {
             if (status) status.textContent = err instanceof Error ? err.message : "Upload failed.";
-            if (submitBtn) submitBtn.disabled = false;
-            if (fileInput) fileInput.value = "";
+            if (submitBtn) {
+              submitBtn.disabled = false;
+              submitBtn.removeAttribute("aria-busy");
+            }
           }
         });
       }
@@ -259,6 +264,7 @@ const deleted = Astro.url.searchParams.get("deleted");
         "use strict";
         var bundles = {};
         try { bundles = JSON.parse(document.getElementById("photoBundles").textContent || "{}"); } catch (e) {}
+        var privateSpace = window.OurNestPrivate || null;
 
         var wallEl = document.getElementById("pwWall");
         var detailEl = document.getElementById("pwDetail");
@@ -266,6 +272,7 @@ const deleted = Astro.url.searchParams.get("deleted");
         var detailDate = document.getElementById("pwDetailDate");
         var detailCount = document.getElementById("pwDetailCount");
         var backBtn = document.getElementById("pwBackBtn");
+        var detailReturnFocus = null;
 
         function prettyDate(s) {
           var p = s.split("-");
@@ -275,6 +282,7 @@ const deleted = Astro.url.searchParams.get("deleted");
         function openDetail(date) {
           var list = bundles[date] || [];
           if (!list.length) return;
+          detailReturnFocus = document.activeElement;
           detailDate.textContent = prettyDate(date);
           detailCount.textContent = list.length + " photos";
           gridEl.textContent = "";
@@ -287,10 +295,13 @@ const deleted = Astro.url.searchParams.get("deleted");
             card.setAttribute("data-idx", idx);
             card.setAttribute("data-date", date);
             var img = document.createElement("img");
-            img.src = item.url;
-            img.alt = item.title || "Photo";
+            img.alt = "Private photo";
             img.loading = "lazy";
+            img.setAttribute("data-private-photo", item.url);
             card.appendChild(img);
+            if (privateSpace && privateSpace.hydratePhotoNodes) {
+              privateSpace.hydratePhotoNodes(card).catch(function () {});
+            }
             card.addEventListener("click", function () { openLb(date, idx); });
             wrap.appendChild(card);
             if (item.canDelete) {
@@ -323,11 +334,13 @@ const deleted = Astro.url.searchParams.get("deleted");
           wallEl.classList.add("is-hidden");
           detailEl.classList.remove("is-hidden");
           window.scrollTo({ top: 0, behavior: "smooth" });
+          if (backBtn) window.setTimeout(function () { backBtn.focus(); }, 0);
         }
 
         function closeDetail() {
           detailEl.classList.add("is-hidden");
           wallEl.classList.remove("is-hidden");
+          if (detailReturnFocus && detailReturnFocus.focus) detailReturnFocus.focus();
         }
 
         document.querySelectorAll(".pw-stack").forEach(function (btn) {
@@ -342,11 +355,36 @@ const deleted = Astro.url.searchParams.get("deleted");
         var uploadBtn = document.getElementById("pwUploadBtn");
         var modalMask = document.getElementById("pwModalMask");
         var modalClose = document.getElementById("pwModalClose");
-        function openModal() { if (modal) modal.classList.remove("is-hidden"); }
-        function closeModal() { if (modal) modal.classList.add("is-hidden"); }
+        var dialogReturnFocus = null;
+        function updateDialogLock() {
+          var modalOpen = modal && !modal.classList.contains("is-hidden");
+          var lbOpen = lbEl && !lbEl.classList.contains("is-hidden");
+          document.documentElement.classList.toggle("has-open-dialog", !!(modalOpen || lbOpen));
+        }
+        function openModal() {
+          if (!modal) return;
+          dialogReturnFocus = document.activeElement;
+          modal.classList.remove("is-hidden");
+          updateDialogLock();
+          window.setTimeout(function () {
+            var firstField = modal.querySelector("input:not([type='hidden'])");
+            (firstField || modalClose).focus();
+          }, 0);
+        }
+        function closeModal() {
+          if (!modal) return;
+          modal.classList.add("is-hidden");
+          updateDialogLock();
+          if (dialogReturnFocus && dialogReturnFocus.focus) dialogReturnFocus.focus();
+        }
         if (uploadBtn) uploadBtn.addEventListener("click", openModal);
         if (modalMask) modalMask.addEventListener("click", closeModal);
         if (modalClose) modalClose.addEventListener("click", closeModal);
+        if (privateSpace && privateSpace.ready) {
+          privateSpace.ready().then(function () {
+            return privateSpace.hydratePhotoNodes(document.getElementById("pwWall"));
+          }).catch(function () {});
+        }
 
         // 灯箱 + slicebox 翻转
         var lbEl = document.getElementById("pwLb");
@@ -358,6 +396,7 @@ const deleted = Astro.url.searchParams.get("deleted");
         var lbDeleteForm = document.getElementById("pwLbDeleteForm");
         var lbDeleteId = document.getElementById("pwLbDeleteId");
         var lbList = [], lbIndex = 0;
+        var lbReturnFocus = null;
 
         var SLICE_EASE = "cubic-bezier(0.66, 0.02, 0.34, 1)";
         var SHADE_MAX = "0.6";
@@ -371,29 +410,40 @@ const deleted = Astro.url.searchParams.get("deleted");
         }
 
         function renderLbMeta(item) {
-          lbCap.textContent = item.title || item.caption || "";
           if (lbDeleteForm && lbDeleteId) {
             lbDeleteForm.classList.toggle("is-hidden", !item.canDelete);
             lbDeleteId.value = item.canDelete ? item.id : "";
           }
-          if (item.diary) {
-            lbDiary.classList.remove("is-hidden");
-            lbDiary.innerHTML = '<div class="pw-lb__diary-head">' + escapeHtml(item.diary.author) + ' · ' + escapeHtml(item.diary.mood) + '</div><div class="pw-lb__diary-text">' + escapeHtml(item.diary.body) + '</div>';
-          } else {
-            lbDiary.classList.add("is-hidden");
-            lbDiary.innerHTML = "";
-          }
+          Promise.all([
+            privateSpace && privateSpace.decryptText ? privateSpace.decryptText(item.title || "") : Promise.resolve(item.title || ""),
+            privateSpace && privateSpace.decryptText ? privateSpace.decryptText(item.caption || "") : Promise.resolve(item.caption || ""),
+            item.diary && privateSpace && privateSpace.decryptText ? privateSpace.decryptText(item.diary.body || "") : Promise.resolve(item.diary && item.diary.body || ""),
+          ]).then(function (values) {
+            lbCap.textContent = values[0] || values[1] || "";
+            if (item.diary) {
+              lbDiary.classList.remove("is-hidden");
+              lbDiary.innerHTML = '<div class="pw-lb__diary-head">' + escapeHtml(item.diary.author) + ' · ' + escapeHtml(item.diary.mood) + '</div><div class="pw-lb__diary-text">' + escapeHtml(values[2]) + '</div>';
+            } else {
+              lbDiary.classList.add("is-hidden");
+              lbDiary.innerHTML = "";
+            }
+          });
         }
 
         function showLb() {
           var item = lbList[lbIndex];
           if (!item) return;
-          lbImg.src = item.url;
-          lbImg.style.visibility = "";
-          renderLbMeta(item);
+          if (privateSpace && privateSpace.hydratePhotoNodes) {
+            lbImg.setAttribute("data-private-photo", item.url);
+            privateSpace.hydratePhotoNodes(lbEl).then(function () {
+              lbImg.style.visibility = "";
+              renderLbMeta(item);
+            }).catch(function () {});
+          }
         }
 
         function openLb(date, idx) {
+          lbReturnFocus = document.activeElement;
           lbList = bundles[date] || [];
           lbIndex = idx;
           lbGen++;
@@ -403,6 +453,8 @@ const deleted = Astro.url.searchParams.get("deleted");
           lbPrev.style.display = many ? "" : "none";
           lbNext.style.display = many ? "" : "none";
           lbEl.classList.remove("is-hidden");
+          updateDialogLock();
+          window.setTimeout(function () { document.getElementById("pwLbClose").focus(); }, 0);
           document.addEventListener("keydown", lbKey);
         }
         function closeLb() {
@@ -410,11 +462,13 @@ const deleted = Astro.url.searchParams.get("deleted");
           lbGen++;
           sliceBusy = false;
           lbEl.classList.add("is-hidden");
+          updateDialogLock();
           if (lbDeleteForm && lbDeleteId) {
             lbDeleteForm.classList.add("is-hidden");
             lbDeleteId.value = "";
           }
           document.removeEventListener("keydown", lbKey);
+          if (lbReturnFocus && lbReturnFocus.focus) lbReturnFocus.focus();
         }
         function prefersReducedMotion() {
           return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -422,12 +476,8 @@ const deleted = Astro.url.searchParams.get("deleted");
         function lbStep(d) {
           if (lbList.length < 2 || sliceBusy) return;
           var nextIndex = (lbIndex + d + lbList.length) % lbList.length;
-          if (prefersReducedMotion()) {
-            lbIndex = nextIndex;
-            showLb();
-            return;
-          }
-          sliceTransition(nextIndex, d > 0);
+          lbIndex = nextIndex;
+          showLb();
         }
         function lbKey(e) {
           if (e.key === "Escape") closeLb();
@@ -586,6 +636,9 @@ const deleted = Astro.url.searchParams.get("deleted");
         lbPrev.addEventListener("click", function () { lbStep(-1); });
         lbNext.addEventListener("click", function () { lbStep(1); });
         lbEl.addEventListener("click", function (e) { if (e.target === lbEl) closeLb(); });
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape" && modal && !modal.classList.contains("is-hidden")) closeModal();
+        });
 
       })();
     </script>

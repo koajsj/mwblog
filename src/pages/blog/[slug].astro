@@ -1,10 +1,8 @@
 ---
 import PrototypeLayout from "../../layouts/PrototypeLayout.astro";
-import { createServiceClient } from "../../lib/supabase";
-import { estimatedReadMinutes, firstMarkdownHeading, markdownToPlainText, renderArticleSections } from "../../lib/markdown";
+import { createLocalsClient } from "../../lib/supabase";
 import { authorDisplayName } from "../../lib/author-display";
 import { formatCommentTime } from "../../lib/comments-display";
-import { decryptPrivateFields, decryptPrivateRows } from "../../lib/private-data";
 import { shanghaiParts } from "../../lib/datetime";
 import type { AuthorKey, BlogPost, Comment } from "../../lib/types";
 
@@ -17,7 +15,7 @@ function safeDecode(value: string) {
 }
 
 const slug = safeDecode(Astro.params.slug || "");
-const supabase = createServiceClient();
+const supabase = createLocalsClient(Astro.locals);
 const { data } = await supabase
   .from("blog_posts")
   .select("id,slug,title,excerpt,content_markdown,tags,published_at,created_at,author_id,profiles(display_name,author_key)")
@@ -28,7 +26,7 @@ if (!data) {
   return Astro.redirect("/blog");
 }
 
-const post = decryptPrivateFields(data as BlogPost, ["title", "excerpt", "content_markdown"]);
+const post = data as BlogPost;
 const author = (post.profiles?.author_key || "white") as AuthorKey;
 const authorName = authorDisplayName(post.profiles, author);
 const dateValue = post.published_at || post.created_at;
@@ -37,10 +35,6 @@ const formatDate = (value: string) => {
   if (!p) return "";
   return `${p.year}.${p.month}.${p.day} ${p.hour}:${p.minute}`;
 };
-const sections = renderArticleSections(post.content_markdown || "");
-const displayTitle = markdownToPlainText(post.title || "") || firstMarkdownHeading(post.content_markdown || "") || post.title;
-const displayExcerpt = post.excerpt ? markdownToPlainText(post.excerpt) : "";
-const readMinutes = estimatedReadMinutes(post.content_markdown || "");
 const user = Astro.locals.user;
 
 const { data: commentRows } = await supabase
@@ -49,12 +43,12 @@ const { data: commentRows } = await supabase
   .eq("target_type", "blog")
   .eq("target_id", post.id)
   .order("created_at", { ascending: true });
-const comments = decryptPrivateRows((commentRows || []) as Comment[], ["body"]);
+const comments = (commentRows || []) as Comment[];
 const returnTo = `/blog/${encodeURIComponent(post.slug)}`;
 const commentError = Astro.url.searchParams.get("error");
 ---
 
-<PrototypeLayout title={`${displayTitle} · Our Nest`} current="blog" bgClass="blog-bg">
+<PrototypeLayout title={`Blog · Our Nest`} current="blog" bgClass="blog-bg">
   <Fragment slot="head">
     <link rel="stylesheet" href="/styles/blog.css" />
     <link rel="stylesheet" href="/styles/comments.css" />
@@ -76,25 +70,20 @@ const commentError = Astro.url.searchParams.get("error");
         <div class="blog-tags" id="blogTags" aria-label="Post metadata">
           <span class={`blog-tag blog-tag--${author}`}>{authorName}</span>
           <span class="blog-tag">{formatDate(dateValue)}</span>
-          <span class="blog-tag">{readMinutes} min read</span>
+          <span class="blog-tag" id="blogReadMinutes">Locked</span>
           {(post.tags || []).map((tag) => <span class="blog-tag">{tag}</span>)}
         </div>
-        <h1>{displayTitle}</h1>
-        {displayExcerpt && <p class="article-summary">{displayExcerpt}</p>}
+        <h1 id="blogTitle" data-private-text={post.title} data-private-fallback="Private post"></h1>
+        <p class="article-summary" id="blogExcerpt" data-private-text={post.excerpt || ""} data-private-fallback=""></p>
       </header>
 
-      {sections.map((section) => (
-        <section class="article-section" id={section.id} data-toc-title={section.title}>
-          {section.title !== "Content" && <h2>{section.title}</h2>}
-          <Fragment set:html={section.html} />
-        </section>
-      ))}
+      <div id="blogArticle" data-private-markdown={post.content_markdown}></div>
 
       <section class="cmt-section" id="comments" aria-label="Comments">
         <p class="cmt-title">Comments · {comments.length}</p>
 
         {commentError && (
-          <p style="font-size:13px;color:#9d3f3f;background:rgba(255,242,242,.85);padding:8px 14px;border-radius:10px;margin-bottom:12px;">{commentError}</p>
+          <p class="site-notice site-notice--error site-notice--block" role="alert">{commentError}</p>
         )}
 
         {comments.length ? (
@@ -109,7 +98,7 @@ const commentError = Astro.url.searchParams.get("error");
                     <span class="cmt-meta__time">{formatCommentTime(c.created_at)}</span>
                   </div>
                   <div class="cmt-bubble">
-                    {c.body}
+                    <span data-private-text={c.body} data-private-fallback="Unlock to read this comment."></span>
                     {user?.id === c.author_id && (
                       <span class="cmt-bubble__delete">
                         <form action="/api/comments/delete" method="post" data-confirm="Delete this comment?" data-confirm-title="Delete comment?">
@@ -158,6 +147,52 @@ const commentError = Astro.url.searchParams.get("error");
   </main>
 
   <Fragment slot="scripts">
+    <script>
+      import { estimatedReadMinutes, firstMarkdownHeading, markdownToPlainText, renderArticleSections } from "../../lib/markdown";
+
+      const privateSpace = (window as any).OurNestPrivate;
+      const article = document.getElementById("blogArticle");
+      const title = document.getElementById("blogTitle");
+      const excerpt = document.getElementById("blogExcerpt");
+      const readMinutes = document.getElementById("blogReadMinutes");
+
+      privateSpace?.ready?.().then(async () => {
+        await privateSpace.decryptTextNodes(document.querySelector(".article-head") || document);
+        await privateSpace.decryptTextNodes(document.getElementById("comments") || document);
+        if (!article) return;
+        const encrypted = article.getAttribute("data-private-markdown") || "";
+        const markdown = await privateSpace.decryptText(encrypted);
+        const sections = renderArticleSections(markdown || "");
+        article.innerHTML = sections.map((section) => {
+          const heading = section.title !== "Content" ? `<h2>${section.title}</h2>` : "";
+          return `<section class="article-section" id="${section.id}" data-toc-title="${section.title}">${heading}${section.html}</section>`;
+        }).join("");
+        window.dispatchEvent(new CustomEvent("blog:content-ready"));
+        if (title && !title.textContent?.trim()) {
+          title.textContent = markdownToPlainText(await privateSpace.decryptText(title.getAttribute("data-private-text") || "")) || firstMarkdownHeading(markdown || "") || "Private post";
+        }
+        if (excerpt) {
+          const decryptedExcerpt = await privateSpace.decryptText(excerpt.getAttribute("data-private-text") || "");
+          excerpt.textContent = decryptedExcerpt ? markdownToPlainText(decryptedExcerpt) : "";
+          excerpt.style.display = excerpt.textContent ? "" : "none";
+        }
+        if (readMinutes) readMinutes.textContent = `${estimatedReadMinutes(markdown || "")} min read`;
+      }).catch(() => {});
+    </script>
     <script is:inline src="/scripts/blog.js"></script>
+    <script is:inline>
+      (function () {
+        var privateSpace = window.OurNestPrivate || null;
+        document.querySelectorAll(".cmt-form").forEach(function (form) {
+          form.addEventListener("submit", function (event) {
+            if (!privateSpace || !privateSpace.encryptFormFields) return;
+            event.preventDefault();
+            privateSpace.encryptFormFields(form, ["body"]).then(function () {
+              form.submit();
+            }).catch(function () {});
+          });
+        });
+      })();
+    </script>
   </Fragment>
 </PrototypeLayout>

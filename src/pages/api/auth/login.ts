@@ -1,8 +1,9 @@
 import type { APIRoute } from "astro";
-import { resolveFixedAccount } from "../../../lib/accounts";
+import { isAllowedPrivateProfile, resolveFixedAccount, resolveFixedAccountByEmail } from "../../../lib/accounts";
 import { setSessionCookies } from "../../../lib/auth";
 import { safeLocalRedirect } from "../../../lib/redirect";
-import { createAnonClient } from "../../../lib/supabase";
+import { checkLoginRateLimit, clearLoginFailures, recordLoginFailure } from "../../../lib/security";
+import { createAnonClient, createUserClient } from "../../../lib/supabase";
 
 function backToLogin(message: string, redirectTo = "/?skipCover=1#home") {
   const params = new URLSearchParams({ error: message, redirect: redirectTo });
@@ -20,13 +21,40 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
     return redirect(backToLogin("Please enter account mm or ww and your password.", redirectTo), 303);
   }
 
+  const rateLimit = checkLoginRateLimit(request, accountName);
+  if (!rateLimit.allowed) {
+    const retryMinutes = Math.max(1, Math.ceil(rateLimit.retryAfterSeconds / 60));
+    return redirect(backToLogin(`Too many login attempts. Try again in ${retryMinutes} minute${retryMinutes > 1 ? "s" : ""}.`, redirectTo), 303);
+  }
+
   const supabase = createAnonClient();
   const { data, error } = await supabase.auth.signInWithPassword({ email: account.email, password });
 
   if (error || !data.session) {
-    return redirect(backToLogin(error?.message || "Login failed. Please check your email and password.", redirectTo), 303);
+    recordLoginFailure(request, accountName);
+    return redirect(backToLogin("Login failed. Please check your account and password.", redirectTo), 303);
   }
 
+  const user = data.user;
+  const allowedAccount = resolveFixedAccountByEmail(user?.email);
+  if (!user || !allowedAccount) {
+    recordLoginFailure(request, accountName);
+    return redirect(backToLogin("This account is not allowed.", redirectTo), 303);
+  }
+
+  const userClient = createUserClient(data.session.access_token);
+  const { data: profile } = await userClient
+    .from("profiles")
+    .select("email,author_key")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (!isAllowedPrivateProfile(profile, user.email)) {
+    recordLoginFailure(request, accountName);
+    return redirect(backToLogin("This account is not allowed.", redirectTo), 303);
+  }
+
+  clearLoginFailures(request, accountName);
   setSessionCookies(cookies, data.session);
   return redirect(redirectTo, 303);
 };

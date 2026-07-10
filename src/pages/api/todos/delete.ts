@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { createServiceClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/supabase";
 import { deleteLinkedTodoActivities, json } from "../../../lib/todo-utils";
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -10,7 +10,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const id = String(form.get("id") || "").trim();
   if (!id) return json({ error: "Missing task id." }, 400);
 
-  const supabase = createServiceClient();
+  const supabase = createLocalsClient(locals);
   const { data: todo, error: readError } = await supabase
     .from("todos")
     .select("id,completed,activity_entry_id")

@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
-import { extensionFromFile, isAllowedImageType, MAX_PHOTO_BYTES } from "../../../lib/files";
-import { encryptPrivateFile } from "../../../lib/private-files";
+import { extensionFromName, MAX_PHOTO_BYTES, isAllowedImageType } from "../../../lib/files";
+import { parseEncryptedFileHeader } from "../../../lib/private-payload";
 import { ensureStorageBuckets } from "../../../lib/storage";
 import { createServiceClient } from "../../../lib/supabase";
 
@@ -11,7 +11,7 @@ function json(body: unknown, status = 200) {
   });
 }
 
-// 上传临时照片对象。文件字节先在服务端加密，再写入 Supabase Storage。
+// 上传临时照片对象。文件字节必须已由浏览器端加密，再由服务端受控写入 Storage。
 export const POST: APIRoute = async ({ request, locals }) => {
   const user = locals.user;
   if (!user) return json({ error: "Please log in." }, 401);
@@ -21,9 +21,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   if (!(file instanceof File) || file.size === 0) {
     return json({ error: "Please choose a photo to upload." }, 400);
-  }
-  if (!isAllowedImageType(file.type)) {
-    return json({ error: "Only image files can be uploaded." }, 400);
   }
   if (file.size > MAX_PHOTO_BYTES) {
     return json({ error: "Photos must be 50 MB or smaller." }, 400);
@@ -36,18 +33,20 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return json({ error: message }, 500);
   }
 
-  const ext = extensionFromFile(file);
-  const path = `${user.id}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
-  let encrypted: Buffer;
+  const sourceBytes = new Uint8Array(await file.arrayBuffer());
+  let detectedType = "";
   try {
-    encrypted = encryptPrivateFile(Buffer.from(await file.arrayBuffer()), file.type);
+    detectedType = parseEncryptedFileHeader(sourceBytes).mimeType;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Photo encryption failed.";
-    return json({ error: message }, 500);
+    return json({ error: error instanceof Error ? error.message : "Invalid encrypted photo upload." }, 400);
   }
+  if (!isAllowedImageType(detectedType)) return json({ error: "Only encrypted JPEG, PNG, WebP, or GIF uploads are allowed." }, 400);
 
-  const supabase = createServiceClient();
-  const { error } = await supabase.storage.from("photos").upload(path, encrypted, {
+  const ext = extensionFromName(file.name, detectedType);
+  const path = `${user.id}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
+
+  const storage = createServiceClient().storage.from("photos");
+  const { error } = await storage.upload(path, sourceBytes, {
     contentType: "application/octet-stream",
     upsert: false,
   });
@@ -56,5 +55,5 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return json({ error: error.message || "Could not upload photo." }, 500);
   }
 
-  return json({ path, mime_type: file.type });
+  return json({ path, mime_type: detectedType });
 };

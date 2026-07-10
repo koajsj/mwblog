@@ -255,6 +255,11 @@ body {
   transform: translateY(-2px);
   box-shadow: 0 9px 20px rgba(80, 130, 150, 0.28);
 }
+.bi-upload__save:disabled {
+  opacity: 0.58;
+  transform: none;
+  box-shadow: 0 4px 10px rgba(80, 130, 150, 0.14);
+}
 
 .post-list {
   display: flex;

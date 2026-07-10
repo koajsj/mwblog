@@ -372,6 +372,13 @@
   updateProgress();
   var initialVisibleIds = readingHeadingIds();
   setTocState(initialVisibleIds[0], initialVisibleIds);
+  window.addEventListener("blog:content-ready", function () {
+    buildToc();
+    updateTags();
+    updateProgress();
+    var visibleIds = readingHeadingIds();
+    setTocState(visibleIds[0], visibleIds);
+  });
   window.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", onScroll);
   window.addEventListener("load", onScroll);

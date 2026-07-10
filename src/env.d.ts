@@ -6,5 +6,6 @@ declare namespace App {
     user: import("@supabase/supabase-js").User | null;
     profile: import("./lib/types").Profile | null;
     session: import("@supabase/supabase-js").Session | null;
+    accessToken: string;
   }
 }

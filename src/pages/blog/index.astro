@@ -1,13 +1,11 @@
 ---
 import PrototypeLayout from "../../layouts/PrototypeLayout.astro";
-import { createServiceClient } from "../../lib/supabase";
+import { createLocalsClient } from "../../lib/supabase";
 import { authorDisplayName, makeAuthorNames } from "../../lib/author-display";
-import { estimatedReadMinutes, markdownToPlainText } from "../../lib/markdown";
-import { decryptPrivateRows } from "../../lib/private-data";
 import { shanghaiParts } from "../../lib/datetime";
 import type { AuthorKey, BlogPost } from "../../lib/types";
 
-const supabase = createServiceClient();
+const supabase = createLocalsClient(Astro.locals);
 const [{ data }, { data: authorRows }] = await Promise.all([
   supabase
     .from("blog_posts")
@@ -16,7 +14,7 @@ const [{ data }, { data: authorRows }] = await Promise.all([
   supabase.from("profiles").select("author_key,display_name"),
 ]);
 
-const posts = decryptPrivateRows((data || []) as BlogPost[], ["title", "excerpt", "content_markdown"]);
+const posts = (data || []) as BlogPost[];
 const authorNames = makeAuthorNames(authorRows || []);
 const user = Astro.locals.user;
 const noticeError = Astro.url.searchParams.get("error");
@@ -28,18 +26,6 @@ const allTags = Array.from(allTagsSet);
 
 function authorEmoji(key: AuthorKey) {
   return key === "white" ? "🐶" : "🐕";
-}
-
-function readMinutes(post: BlogPost) {
-  return estimatedReadMinutes(post.content_markdown || "");
-}
-
-function displayPostTitle(post: BlogPost) {
-  return markdownToPlainText(post.title || "") || post.title;
-}
-
-function displayPostExcerpt(post: BlogPost) {
-  return markdownToPlainText(post.excerpt || "") || "Open it to read the full post.";
 }
 
 function formatDate(value: string) {
@@ -82,8 +68,8 @@ const currentYear = posts.length ? postYear(posts[0]) : new Date().getFullYear()
         <a class="bi-years" href="#archive">Browse by year →</a>
       </div>
 
-      {noticeError && <p style="margin:-6px 0 18px;padding:10px 14px;border-radius:12px;color:#9d3f3f;background:rgba(255,242,242,.85);font-weight: 650;">{noticeError}</p>}
-      {deleted === "post" && <p style="margin:-6px 0 18px;padding:10px 14px;border-radius:12px;color:#3f6a4f;background:rgba(232,247,236,.85);font-weight: 650;">Post deleted.</p>}
+      {noticeError && <p class="site-notice site-notice--error site-notice--block" role="alert">{noticeError}</p>}
+      {deleted === "post" && <p class="site-notice site-notice--block" role="status">Post deleted.</p>}
 
       {user && (
         <form class="bi-upload is-hidden" id="blogUploadPanel" action="/api/blog/upload" method="post" enctype="multipart/form-data">
@@ -113,7 +99,7 @@ const currentYear = posts.length ? postYear(posts[0]) : new Date().getFullYear()
             <small class="bi-upload__tag-help">Separate tags with commas, Chinese commas, or pauses.</small>
           </label>
           <div class="bi-upload__actions">
-            <p class="bi-upload__hint" id="blogUploadHint">Supports front matter: title, excerpt, tags. Tags entered here will be added too.</p>
+            <p class="bi-upload__hint" id="blogUploadHint" role="status" aria-live="polite">Supports front matter: title, excerpt, tags. Tags entered here will be added too.</p>
             <button class="bi-upload__save" type="submit">Publish post</button>
           </div>
         </form>
@@ -127,11 +113,11 @@ const currentYear = posts.length ? postYear(posts[0]) : new Date().getFullYear()
             <article class="post-item" data-authors={author} data-tags={(post.tags || []).join(" ")}>
               <a class="post-item__link" href={`/blog/${encodeURIComponent(post.slug)}`}>
                 <time class="post-item__date" datetime={dateValue}>{formatDate(dateValue)}</time>
-                <h2>{displayPostTitle(post)}</h2>
-                <p>{displayPostExcerpt(post)}</p>
+                <h2 data-private-text={post.title} data-private-fallback="Private post">Private post</h2>
+                <p data-private-text={post.excerpt || ""} data-private-fallback="Open it to read the full post.">Open it to read the full post.</p>
                 <div class="post-item__meta">
                   <span>{authorEmoji(author)} {authorDisplayName(post.profiles, author, authorNames)}</span>
-                  <span>{readMinutes(post)} min read</span>
+                  <span data-private-minutes={post.content_markdown}>Locked</span>
                 </div>
                 <div class="post-item__tags">
                   {(post.tags || []).map((tag) => <span>{tag}</span>)}
@@ -180,6 +166,70 @@ const currentYear = posts.length ? postYear(posts[0]) : new Date().getFullYear()
   </main>
 
   <Fragment slot="scripts">
+    <script>
+      import { estimatedReadMinutes, markdownToPlainText, parseMarkdown, parseTagList, slugify } from "../../lib/markdown";
+
+      const privateSpace = (window as any).OurNestPrivate;
+      privateSpace?.ready?.().then(async () => {
+        await privateSpace.decryptTextNodes(document.getElementById("postList") || document);
+        const minuteNodes = Array.from(document.querySelectorAll("[data-private-minutes]"));
+        for (const node of minuteNodes) {
+          const markdown = await privateSpace.decryptText(node.getAttribute("data-private-minutes") || "");
+          node.textContent = `${estimatedReadMinutes(markdown || "")} min read`;
+        }
+      }).catch(() => {});
+
+      const uploadForm = document.getElementById("blogUploadPanel") as HTMLFormElement | null;
+      if (uploadForm) {
+        uploadForm.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const fileInput = document.getElementById("blogUploadInput") as HTMLInputElement | null;
+          const submitButton = uploadForm.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+          const hint = document.getElementById("blogUploadHint");
+          if (submitButton?.disabled) return;
+          const file = fileInput?.files?.[0];
+          if (!file) {
+            if (hint) hint.textContent = "Please choose a Markdown file first.";
+            return;
+          }
+          if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.setAttribute("aria-busy", "true");
+          }
+          if (hint) hint.textContent = "Encrypting and publishing...";
+          try {
+            const text = await file.text();
+            const parsed = parseMarkdown(text, file.name.replace(/\.(md|markdown)$/i, "") || "post");
+            const slug = (uploadForm.querySelector('input[name="slug"]') as HTMLInputElement | null)?.value.trim() || slugify(parsed.title);
+            const tags = parseTagList((uploadForm.querySelector('input[name="tags"]') as HTMLInputElement | null)?.value.trim() || "");
+            const payload = {
+              filename: file.name,
+              slug,
+              tags: tags.join(","),
+              parsed_tags: parsed.tags,
+              return_to: "/blog",
+              title: await privateSpace.encryptText(parsed.title),
+              excerpt: await privateSpace.encryptText((parsed.excerpt || "").slice(0, 320)),
+              content_markdown: await privateSpace.encryptText(text),
+            };
+            const res = await fetch("/api/blog/upload", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || "Could not publish the post.");
+            window.location.href = `/blog/${encodeURIComponent(data.slug || slug)}`;
+          } catch (error) {
+            if (hint) hint.textContent = error instanceof Error ? error.message : "Could not publish the post.";
+            if (submitButton) {
+              submitButton.disabled = false;
+              submitButton.removeAttribute("aria-busy");
+            }
+          }
+        });
+      }
+    </script>
     <script is:inline src="/scripts/blog-index.js"></script>
     <script is:inline>
       (function () {

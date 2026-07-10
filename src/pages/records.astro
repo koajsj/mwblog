@@ -1,15 +1,14 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
-import { createServiceClient } from "../lib/supabase";
-import { attachPrivatePhotoUrls } from "../lib/storage";
-import { decryptPrivateRows } from "../lib/private-data";
+import { createLocalsClient } from "../lib/supabase";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
 import { formatCommentTime } from "../lib/comments-display";
-import { shanghaiDateKey, shanghaiParts } from "../lib/datetime";
+import { shanghaiParts } from "../lib/datetime";
+import { serializeJsonForScript } from "../lib/security";
 import { MOOD_LABELS } from "../lib/types";
 import type { AuthorKey, Comment, LifeRecord, Photo } from "../lib/types";
 
-const supabase = createServiceClient();
+const supabase = createLocalsClient(Astro.locals);
 const user = Astro.locals.user;
 const profile = Astro.locals.profile;
 const canCreate = !!user;
@@ -29,7 +28,7 @@ const [{ data: recordsData }, { data: photosData }, { data: authorRows }] = awai
   supabase.from("profiles").select("author_key,display_name"),
 ]);
 
-const records = decryptPrivateRows((recordsData || []) as LifeRecord[], ["body"]);
+const records = (recordsData || []) as LifeRecord[];
 const authorNames = makeAuthorNames(authorRows || []);
 
 // 一次性拉所有记录的评论，按 record_id 分组
@@ -43,14 +42,14 @@ const { data: commentRows } = recordIds.length
       .order("created_at", { ascending: true })
   : { data: [] };
 const commentsByRecord = new Map<string, Comment[]>();
-decryptPrivateRows((commentRows || []) as Comment[], ["body"]).forEach((c) => {
+((commentRows || []) as Comment[]).forEach((c) => {
   const list = commentsByRecord.get(c.target_id) || [];
   list.push(c);
   commentsByRecord.set(c.target_id, list);
 });
 const currentAuthor = (profile?.author_key || "white") as AuthorKey;
 const currentAuthorName = authorDisplayName(profile, currentAuthor, authorNames);
-const photos = await attachPrivatePhotoUrls(decryptPrivateRows((photosData || []) as Photo[], ["title", "caption"]));
+const photos = (photosData || []) as Photo[];
 
 const photosByKey = new Map<string, typeof photos>();
 photos.forEach((photo) => {
@@ -80,7 +79,7 @@ function recordTime(value: string) {
   return p ? `${p.hour}:${p.minute}` : "";
 }
 
-const today = shanghaiDateKey();
+const today = new Date().toISOString().slice(0, 10);
 const moods: Array<{ key: string; label: string }> = [
   { key: "happy", label: "😄 Happy" },
   { key: "loved", label: "🥰 Loved" },
@@ -112,9 +111,9 @@ const deleted = Astro.url.searchParams.get("deleted");
       ) : (
         <a class="rec-add-toggle" href="/auth/login">Log in to add</a>
       )}
-      {noticeError && <p style="margin-top:14px;color:#9d3f3f;background:rgba(255,242,242,.8);padding:10px 14px;border-radius:12px;display:inline-block;">{noticeError}</p>}
-      {created === "record" && <p style="margin-top:14px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Record saved.</p>}
-      {deleted === "record" && <p style="margin-top:14px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Record deleted.</p>}
+      {noticeError && <p class="site-notice site-notice--error" role="alert">{noticeError}</p>}
+      {created === "record" && <p class="site-notice" role="status">Record saved.</p>}
+      {deleted === "record" && <p class="site-notice" role="status">Record deleted.</p>}
     </header>
 
     {canCreate && (
@@ -153,7 +152,7 @@ const deleted = Astro.url.searchParams.get("deleted");
           <span>Photos</span>
           <label class="rec-file">
             ＋ Choose photos (multiple allowed)
-            <input name="photos" id="recPhotos" type="file" accept="image/*" multiple hidden />
+            <input name="photos" id="recPhotos" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden />
           </label>
           <p class="rec-file__hint" id="recPhotoHint">Photos will also appear in Photos.</p>
         </div>
@@ -205,13 +204,13 @@ const deleted = Astro.url.searchParams.get("deleted");
                         <div class="note__photos">
                           {samePhotos.map((p, idx) => (
                             <button class="note__photo" type="button" data-lb-index={idx} data-lb-group={`${author}|${record.record_on}`}>
-                              <img src={p.publicUrl} alt={p.title || "Photo"} loading="lazy" />
+                              <img data-private-photo={`/api/photos/file?id=${encodeURIComponent(p.id)}`} alt="Private photo" loading="lazy" />
                             </button>
                           ))}
                         </div>
                       )}
                       <div class="note__body">
-                        <p class="note__text">{record.body}</p>
+                        <p class="note__text" data-private-text={record.body} data-private-fallback="Unlock to read this record."></p>
                       </div>
                       <span class="note__hint">Click to expand ▾</span>
                       {user?.id === record.owner_id && (
@@ -236,7 +235,7 @@ const deleted = Astro.url.searchParams.get("deleted");
                                     <span class="cmt-meta__time">{formatCommentTime(c.created_at)}</span>
                                   </div>
                                   <div class="cmt-bubble">
-                                    {c.body}
+                                    <span data-private-text={c.body} data-private-fallback="Unlock to read this comment."></span>
                                     {user?.id === c.author_id && (
                                       <span class="cmt-bubble__delete">
                                         <form action="/api/comments/delete" method="post" data-confirm="Delete this comment?" data-confirm-title="Delete comment?">
@@ -284,11 +283,11 @@ const deleted = Astro.url.searchParams.get("deleted");
     <img class="rec-lb__img" id="recLbImg" alt="" />
   </div>
 
-  <script id="photoData" type="application/json" set:html={JSON.stringify(
+  <script id="photoData" type="application/json" set:html={serializeJsonForScript(
     Object.fromEntries(
       Array.from(photosByKey.entries()).map(([key, list]) => [
         key,
-        list.map((p) => ({ url: p.publicUrl, title: p.title, caption: p.caption })),
+        list.map((p) => ({ url: `/api/photos/file?id=${encodeURIComponent(p.id)}` })),
       ])
     )
   )}></script>
@@ -308,7 +307,10 @@ const deleted = Astro.url.searchParams.get("deleted");
           const fileInput = form.querySelector('input[name="photos"]') as HTMLInputElement | null;
           const files = Array.from(fileInput?.files || []);
 
-          if (submitBtn) submitBtn.disabled = true;
+          if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.setAttribute("aria-busy", "true");
+          }
 
           try {
             const photos = [];
@@ -316,11 +318,15 @@ const deleted = Astro.url.searchParams.get("deleted");
               if (status) status.textContent = `Uploading photo ${i + 1} of ${files.length}…`;
               photos.push(await uploadImageFile(files[i]));
             }
+            const privateSpace = (window as any).OurNestPrivate;
+            if (!privateSpace?.encryptText) throw new Error("Private-space encryption is not ready.");
+            const encryptedBody = await privateSpace.encryptText(body);
+            const encryptedCaption = await privateSpace.encryptText((body || "Photo").slice(0, 120));
             if (status) status.textContent = "Saving…";
             const res = await fetch("/api/records/create", {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ record_on: recordOn, mood, body, photos }),
+              body: JSON.stringify({ record_on: recordOn, mood, body: encryptedBody, photo_caption: encryptedCaption, photos }),
             });
             if (!res.ok) {
               const data = await res.json().catch(() => ({}));
@@ -329,8 +335,10 @@ const deleted = Astro.url.searchParams.get("deleted");
             window.location.href = "/records?created=record";
           } catch (err) {
             if (status) status.textContent = err instanceof Error ? err.message : "Save failed.";
-            if (submitBtn) submitBtn.disabled = false;
-            if (fileInput) fileInput.value = "";
+            if (submitBtn) {
+              submitBtn.disabled = false;
+              submitBtn.removeAttribute("aria-busy");
+            }
           }
         });
       }
@@ -343,6 +351,7 @@ const deleted = Astro.url.searchParams.get("deleted");
         "use strict";
         var photoMap = {};
         try { photoMap = JSON.parse(document.getElementById("photoData").textContent || "{}"); } catch (e) {}
+        var privateSpace = window.OurNestPrivate || null;
 
         // 筛选
         var filterEl = document.getElementById("recFilter");
@@ -406,13 +415,20 @@ const deleted = Astro.url.searchParams.get("deleted");
         var lbNext = document.getElementById("recLbNext");
         var lbList = [];
         var lbIndex = 0;
+        var lbReturnFocus = null;
 
         function showLb() {
           var p = lbList[lbIndex];
           if (!p) return;
-          lbImg.src = p.url;
+          if (privateSpace && privateSpace.hydratePhotoNodes) {
+            lbImg.setAttribute("data-private-photo", p.url);
+            privateSpace.hydratePhotoNodes(lbEl).catch(function () {
+              lbImg.removeAttribute("src");
+            });
+          }
         }
         function openLb(list, idx) {
+          lbReturnFocus = document.activeElement;
           lbList = list;
           lbIndex = idx;
           var many = list.length > 1;
@@ -420,11 +436,15 @@ const deleted = Astro.url.searchParams.get("deleted");
           lbNext.style.display = many ? "" : "none";
           showLb();
           lbEl.classList.remove("is-hidden");
+          document.documentElement.classList.add("has-open-dialog");
+          window.setTimeout(function () { document.getElementById("recLbClose").focus(); }, 0);
           document.addEventListener("keydown", lbKey);
         }
         function closeLb() {
           lbEl.classList.add("is-hidden");
+          document.documentElement.classList.remove("has-open-dialog");
           document.removeEventListener("keydown", lbKey);
+          if (lbReturnFocus && lbReturnFocus.focus) lbReturnFocus.focus();
         }
         function lbStep(d) {
           if (lbList.length < 2) return;
@@ -491,6 +511,23 @@ const deleted = Astro.url.searchParams.get("deleted");
             photoHint.textContent = count ? ("Selected " + count + " photos. They will also appear in Photos.") : "Photos will also appear in Photos.";
           });
         }
+        if (privateSpace && privateSpace.ready) {
+          privateSpace.ready().then(function () {
+            return Promise.all([
+              privateSpace.decryptTextNodes(document.getElementById("recTimeline")),
+              privateSpace.hydratePhotoNodes(document.getElementById("recTimeline"))
+            ]);
+          }).catch(function () {});
+        }
+        document.querySelectorAll(".cmt-form").forEach(function (commentForm) {
+          commentForm.addEventListener("submit", function (event) {
+            if (!privateSpace || !privateSpace.encryptFormFields) return;
+            event.preventDefault();
+            privateSpace.encryptFormFields(commentForm, ["body"]).then(function () {
+              commentForm.submit();
+            }).catch(function () {});
+          });
+        });
       })();
     </script>
   </Fragment>

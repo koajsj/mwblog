@@ -17,6 +17,8 @@
 :root {
   --site-font: "Satoshi", "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "Segoe UI", system-ui, sans-serif;
   --font: var(--site-font);
+  --site-focus: rgba(79, 126, 170, 0.72);
+  --site-focus-soft: rgba(122, 166, 212, 0.2);
 }
 
 html,
@@ -24,11 +26,129 @@ body {
   font-family: var(--site-font);
 }
 
+html {
+  min-height: 100%;
+  color-scheme: light;
+  text-rendering: optimizeLegibility;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+html.has-open-dialog,
+html.has-open-dialog body {
+  overflow: hidden;
+}
+
 button,
 input,
 textarea,
 select {
   font-family: inherit;
+}
+
+button,
+a,
+input,
+textarea,
+select,
+[tabindex] {
+  -webkit-tap-highlight-color: rgba(122, 166, 212, 0.16);
+}
+
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 3px solid var(--site-focus);
+  outline-offset: 3px;
+}
+
+:where(button, input, textarea, select):disabled {
+  cursor: not-allowed;
+}
+
+:where(button, a):active {
+  transform: translateY(1px) scale(0.985);
+}
+
+::selection {
+  color: #263d51;
+  background: rgba(159, 220, 197, 0.52);
+}
+
+.site-notice {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: min(100%, 620px);
+  margin: 14px 0 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(86, 130, 100, 0.12);
+  border-radius: 12px;
+  color: #3f6a4f;
+  background: rgba(232, 247, 236, 0.88);
+  box-shadow: 0 8px 20px rgba(70, 96, 82, 0.08);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.55;
+}
+
+.site-notice--error {
+  border-color: rgba(157, 63, 63, 0.12);
+  color: #8b3f3f;
+  background: rgba(255, 242, 242, 0.9);
+  box-shadow: 0 8px 20px rgba(120, 68, 68, 0.08);
+}
+
+.site-notice--block {
+  display: flex;
+  margin: -6px 0 18px;
+}
+
+[data-private-photo] {
+  opacity: 0.42;
+  filter: saturate(0.7);
+  transition: opacity 0.32s ease, filter 0.32s ease;
+}
+
+[data-private-photo][data-private-loaded="true"] {
+  opacity: 1;
+  filter: none;
+}
+
+[data-private-photo][data-private-loaded="error"] {
+  opacity: 0.58;
+  filter: grayscale(0.45);
+}
+
+[data-private-text]:not([data-private-loaded="true"]) {
+  color: rgba(83, 104, 125, 0.72);
+}
+
+@media (max-width: 680px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+
+  :where(button, [role="button"]) {
+    touch-action: manipulation;
+  }
+
+  .site-notice {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(button, a),
+  [data-private-photo] {
+    transition: none !important;
+  }
 }
 
 .home-cover,

@@ -190,6 +190,8 @@
 @media (max-width: 680px) {
   .site-nav__bar {
     gap: 14px;
+    padding-left: max(var(--site-nav-pad-x), env(safe-area-inset-left));
+    padding-right: max(var(--site-nav-pad-x), env(safe-area-inset-right));
   }
 
   .site-nav__brand {
@@ -200,8 +202,13 @@
     flex: 1 1 auto;
     justify-content: flex-start;
     gap: 16px !important;
+    padding: 8px 2px !important;
     overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-padding-inline: 8px;
+    scroll-snap-type: x proximity;
     scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
   }
 
   .site-nav__links::-webkit-scrollbar {
@@ -209,7 +216,12 @@
   }
 
   .site-nav__links a {
+    display: inline-flex !important;
+    align-items: center;
+    min-height: 40px;
     font-size: 13px !important;
+    scroll-snap-align: start;
+    touch-action: manipulation;
   }
 }
 

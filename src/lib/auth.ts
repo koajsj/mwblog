@@ -8,7 +8,7 @@ const REFRESH_COOKIE = "cb-refresh-token";
 const cookieBase = {
   httpOnly: true,
   path: "/",
-  sameSite: "lax" as const,
+  sameSite: "strict" as const,
   secure: import.meta.env.PROD,
 };
 
@@ -24,8 +24,8 @@ export function setSessionCookies(cookies: AstroCookies, session: Session) {
 }
 
 export function clearSessionCookies(cookies: AstroCookies) {
-  cookies.delete(ACCESS_COOKIE, { path: "/" });
-  cookies.delete(REFRESH_COOKIE, { path: "/" });
+  cookies.delete(ACCESS_COOKIE, cookieBase);
+  cookies.delete(REFRESH_COOKIE, cookieBase);
 }
 
 export function getAccessToken(cookies: AstroCookies) {

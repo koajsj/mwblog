@@ -99,6 +99,7 @@ const authorKey = (profile?.author_key || "white") as AuthorKey;
 
     <slot />
 
+    {user && <script is:inline src="/scripts/private-space.js"></script>}
     <script is:inline src="/scripts/corner-dogs.js"></script>
     <script is:inline src="/scripts/scroll-reveal.js"></script>
     <script is:inline src="/scripts/ghost.js"></script>
@@ -111,6 +112,12 @@ const authorKey = (profile?.author_key || "white") as AuthorKey;
 </html>
 
 <style is:global>
+  html,
+  body {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
   /* 导航链接整体推到右侧，紧挨登录/用户胶囊 */
   .site-nav__links {
     margin-left: 0 !important;

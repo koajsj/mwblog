@@ -1,6 +1,5 @@
 import type { APIRoute } from "astro";
-import { safeLocalRedirect } from "../../../lib/redirect";
-import { createServiceClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/supabase";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const user = locals.user;
@@ -9,14 +8,14 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const form = await request.formData();
   const id = String(form.get("id") || "");
   const rawReturn = String(form.get("return_to") || "").trim();
-  const safeReturn = safeLocalRedirect(rawReturn, "/records");
+  const safeReturn = rawReturn.startsWith("/") && !rawReturn.startsWith("//") ? rawReturn : "/records";
   const sep = safeReturn.includes("?") ? "&" : "?";
 
   if (!id) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Missing life record ID")}`, 303);
   }
 
-  const supabase = createServiceClient();
+  const supabase = createLocalsClient(locals);
   const { error } = await supabase
     .from("life_records")
     .delete()

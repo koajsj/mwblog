@@ -1,16 +1,15 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
-import { createServiceClient } from "../lib/supabase";
+import { createLocalsClient } from "../lib/supabase";
 import { decryptPrivateRows } from "../lib/private-data";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
-import { isDateKey, shanghaiDateKey } from "../lib/datetime";
 import { ACTIVITY_PERIODS, AUTHOR_COLORS } from "../lib/types";
 import type { ActivityEntry, AuthorKey } from "../lib/types";
 
-const supabase = createServiceClient();
-const todayKey = shanghaiDateKey();
+const supabase = createLocalsClient(Astro.locals);
+const todayKey = new Date().toISOString().slice(0, 10);
 const requestedDate = Astro.url.searchParams.get("date") || todayKey;
-const selectedDate = isDateKey(requestedDate) ? requestedDate : todayKey;
+const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : todayKey;
 const requestedMonth = Astro.url.searchParams.get("month") || selectedDate.slice(0, 7);
 const monthHit = requestedMonth.match(/^(\d{4})-(\d{2})$/);
 const selectedMonth = monthHit && Number(monthHit[2]) >= 1 && Number(monthHit[2]) <= 12 ? requestedMonth : selectedDate.slice(0, 7);
@@ -215,9 +214,9 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
             ? `${selectedLabel} logged ${fmtMinutes(monthTotal)} in ${selectedMonth}`
             : `${selectedLabel} logged ${fmtMinutes(total)} across ${entries.length} tasks`}
         </p>
-        {noticeError && <p style="margin-top:10px;color:#9d3f3f;background:rgba(255,242,242,.8);padding:10px 14px;border-radius:12px;display:inline-block;">{noticeError}</p>}
-        {created === "activity" && <p style="margin-top:10px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Activity saved.</p>}
-        {deleted === "activity" && <p style="margin-top:10px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Activity deleted.</p>}
+        {noticeError && <p class="site-notice site-notice--error" role="alert">{noticeError}</p>}
+        {created === "activity" && <p class="site-notice" role="status">Activity saved.</p>}
+        {deleted === "activity" && <p class="site-notice" role="status">Activity deleted.</p>}
 
         <div class="act-head__tools">
           <div class="act-view act-mode" aria-label="Choose activity view">
@@ -237,7 +236,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
                 <input id="actViewDate" name="date" type="date" value={selectedDate} aria-label="View date" style="width:142px;border:none;border-radius:999px;padding:8px 12px;background:rgba(255,255,255,.74);color:#647084;font-size:13px;font-weight: 650;" />
                 <button type="submit" style="border:none;border-radius:999px;padding:10px 20px;background:rgba(255,255,255,.74);color:#4f6a82;font-weight: 600;font-size:13px;cursor:pointer;">View</button>
               </form>
-              <button class="act-add-toggle" id="actFormToggle" type="button" aria-expanded="false" aria-controls="activityForm">
+              <button class="act-add-toggle" id="actFormToggle" type="button" aria-expanded="false" aria-controls="activityForm" disabled={!canCreateForView}>
                 Add activity
               </button>
             </>
@@ -476,6 +475,14 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
             form.classList.toggle("is-hidden", !open);
             toggle.setAttribute("aria-expanded", open ? "true" : "false");
             toggle.textContent = open ? "Close form" : "Add activity";
+          });
+          form.addEventListener("submit", function (event) {
+            var privateSpace = window.OurNestPrivate || null;
+            if (!privateSpace || !privateSpace.encryptFormFields) return;
+            event.preventDefault();
+            privateSpace.encryptFormFields(form, ["body"]).then(function () {
+              form.submit();
+            }).catch(function () {});
           });
         }
         document.querySelectorAll("[data-clock-input]").forEach(function (input) {

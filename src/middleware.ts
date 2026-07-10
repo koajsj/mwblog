@@ -1,6 +1,8 @@
 import { defineMiddleware } from "astro:middleware";
+import { isAllowedPrivateProfile, resolveFixedAccountByEmail } from "./lib/accounts";
 import { clearSessionCookies, getAccessToken, readSession } from "./lib/auth";
 import { createUserClient } from "./lib/supabase";
+import { withSecurityHeaders } from "./lib/security";
 import type { Profile } from "./lib/types";
 
 const protectedApiPrefixes = [
@@ -18,14 +20,6 @@ const authPages = ["/auth/login"];
 
 function isPrivatePagePath(pathname: string) {
   return pathname === "/" || privatePagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-}
-
-function withSecurityHeaders(response: Response) {
-  response.headers.set("X-Content-Type-Options", "nosniff");
-  response.headers.set("Referrer-Policy", "no-referrer");
-  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
-  return response;
 }
 
 function isMutatingMethod(method: string) {
@@ -55,8 +49,11 @@ export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.user = sessionState.user;
   context.locals.session = sessionState.session;
   context.locals.profile = null;
+  context.locals.accessToken = accessToken;
 
-  if (sessionState.user) {
+  const allowedAccount = resolveFixedAccountByEmail(sessionState.user?.email);
+
+  if (sessionState.user && allowedAccount) {
     const userClient = createUserClient(accessToken);
     const { data } = await userClient
       .from("profiles")
@@ -67,6 +64,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
     context.locals.profile = (data || null) as Profile | null;
   }
 
+  const hasAuthorizedSession = !sessionState.user || isAllowedPrivateProfile(context.locals.profile, sessionState.user.email);
+
   const pathname = url.pathname.replace(/\/$/, "") || "/";
   const needsAuth =
     isPrivatePagePath(pathname) || protectedApiPrefixes.some((prefix) => pathname.startsWith(prefix));
@@ -76,24 +75,32 @@ export const onRequest = defineMiddleware(async (context, next) => {
       return withSecurityHeaders(new Response(JSON.stringify({ error: "Please log in first." }), {
         status: 401,
         headers: { "content-type": "application/json; charset=utf-8" },
-      }));
+      }), url);
     }
-    return withSecurityHeaders(context.redirect(`/auth/login?redirect=${encodeURIComponent(pathname)}`));
+    return withSecurityHeaders(context.redirect(`/auth/login?redirect=${encodeURIComponent(pathname)}`), url);
   }
 
-  if (needsAuth && sessionState.user && !context.locals.profile) {
+  if (sessionState.user && !hasAuthorizedSession) {
     clearSessionCookies(cookies);
+    context.locals.user = null;
+    context.locals.session = null;
+    context.locals.profile = null;
+    context.locals.accessToken = "";
+
     if (pathname.startsWith("/api/")) {
       return withSecurityHeaders(new Response(JSON.stringify({ error: "This account is not allowed." }), {
         status: 403,
         headers: { "content-type": "application/json; charset=utf-8" },
-      }));
+      }), url);
     }
-    return withSecurityHeaders(context.redirect("/auth/login?error=This%20account%20is%20not%20allowed."));
+
+    if (needsAuth || authPages.includes(pathname)) {
+      return withSecurityHeaders(context.redirect("/auth/login?error=This%20account%20is%20not%20allowed."), url);
+    }
   }
 
   if (
-    sessionState.user &&
+    context.locals.user &&
     pathname.startsWith("/api/") &&
     isMutatingMethod(request.method) &&
     !isSameOriginRequest(request, url)
@@ -101,21 +108,18 @@ export const onRequest = defineMiddleware(async (context, next) => {
     return withSecurityHeaders(new Response(JSON.stringify({ error: "Invalid request origin." }), {
       status: 403,
       headers: { "content-type": "application/json; charset=utf-8" },
-    }));
+    }), url);
   }
 
-  if (sessionState.user && authPages.includes(pathname)) {
-    return withSecurityHeaders(context.redirect("/?skipCover=1#home"));
+  if (context.locals.user && authPages.includes(pathname)) {
+    return withSecurityHeaders(context.redirect("/?skipCover=1#home"), url);
   }
 
   const response = await next();
-  withSecurityHeaders(response);
+  withSecurityHeaders(response, url);
 
   if (hasSessionCookie || isPrivatePagePath(pathname)) {
     response.headers.set("Cache-Control", "no-store");
-  }
-  if (url.protocol === "https:") {
-    response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
 
   return response;

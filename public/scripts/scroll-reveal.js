@@ -6,8 +6,8 @@
   "use strict";
 
   var SELECTORS = [
-    ".home-about", ".home-posts",
-    ".home-post-list a",
+    ".home-overview", ".home-status-section", ".home-memories", ".home-recent-photos", ".home-posts", ".home-places",
+    ".home-memory-card", ".home-journal-card", ".home-random", ".home-photo-card",
     ".rec-header", ".rec-filter", ".rec-timeline > *",
     ".pw-header", ".pw-toolbar", ".pw-stacks > *", ".pw-detail__bar", ".pw-grid > *",
     ".bi-head", ".bi-toolbar", ".post-item", ".tag-panel", ".archive-panel", ".bi-pager",

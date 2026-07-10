@@ -1,6 +1,5 @@
 import type { APIRoute } from "astro";
-import { decryptPrivateFields } from "../../../lib/private-data";
-import { createServiceClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/supabase";
 import { deleteLinkedTodoActivities, json } from "../../../lib/todo-utils";
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -11,7 +10,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const id = String(form.get("id") || "").trim();
   if (!id) return json({ error: "Missing task id." }, 400);
 
-  const supabase = createServiceClient();
+  const supabase = createLocalsClient(locals);
   const { data: todo, error: readError } = await supabase
     .from("todos")
     .select("id,activity_entry_id")
@@ -43,10 +42,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     })
     .eq("id", id)
     .eq("owner_id", user.id)
-    .select("id,owner_id,title,completed,completed_on,completed_start_time,completed_end_time,completed_minutes,activity_entry_id,archived_at,created_at,updated_at,profiles(display_name,author_key)")
+    .select("id")
     .maybeSingle();
 
   if (error) return json({ error: error.message }, 500);
   if (!data) return json({ error: "Task not found." }, 404);
-  return json({ todo: decryptPrivateFields(data, ["title"]) });
+  return json({ ok: true });
 };

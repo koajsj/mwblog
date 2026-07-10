@@ -1,10 +1,10 @@
 import type { APIRoute } from "astro";
 import { storageSafeName } from "../../../lib/files";
-import { parseMarkdown, parseTagList, slugify } from "../../../lib/markdown";
+import { parseTagList, slugify } from "../../../lib/markdown";
 import { ensureStorageBuckets } from "../../../lib/storage";
 import { safeLocalRedirect } from "../../../lib/redirect";
-import { encryptPrivateText } from "../../../lib/private-data";
-import { createServiceClient } from "../../../lib/supabase";
+import { readEncryptedText } from "../../../lib/private-payload";
+import { createLocalsClient, createServiceClient } from "../../../lib/supabase";
 
 function mergeTags(...groups: string[][]) {
   const seen = new Set<string>();
@@ -19,50 +19,40 @@ function mergeTags(...groups: string[][]) {
   return tags.slice(0, 12);
 }
 
-export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => {
+export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const user = locals.user;
   if (!user) return redirect("/auth/login", 303);
 
-  const form = await request.formData();
-  const file = form.get("markdown");
-  const manualSlug = String(form.get("slug") || "").trim();
-  const manualTags = parseTagList(String(form.get("tags") || ""));
-  const rawReturn = String(form.get("return_to") || "").trim();
+  const payload = await request.json().catch(() => null);
+  const manualSlug = String(payload?.slug || "").trim();
+  const manualTags = parseTagList(String(payload?.tags || ""));
+  const rawReturn = String(payload?.return_to || "").trim();
   const safeReturn = safeLocalRedirect(rawReturn, "/blog");
   const sep = safeReturn.includes("?") ? "&" : "?";
-
-  if (!(file instanceof File) || file.size === 0) {
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Please choose a Markdown file to upload.")}`, 303);
+  const fallbackTitle = String(payload?.filename || "post").replace(/\.(md|markdown)$/i, "") || "post";
+  let title = "";
+  let excerpt = "";
+  let content = "";
+  try {
+    title = readEncryptedText(payload?.title, { maxLength: 4096 });
+    excerpt = readEncryptedText(payload?.excerpt, { maxLength: 4096 });
+    content = readEncryptedText(payload?.content_markdown, { maxLength: 2000000 });
+  } catch (error) {
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(error instanceof Error ? error.message : "Invalid encrypted blog content.")}`, 303);
   }
 
-  if (file.size > 1024 * 1024) {
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Markdown files must be 1 MB or smaller.")}`, 303);
-  }
-
-  if (!/\.(md|markdown)$/i.test(file.name)) {
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Blog uploads only accept .md or .markdown files.")}`, 303);
-  }
-
-  const content = await file.text();
-  const parsed = parseMarkdown(content, file.name.replace(/\.(md|markdown)$/i, ""));
-  const tags = mergeTags(parsed.tags, manualTags);
-  const slug = slugify(manualSlug || parsed.title);
-  const supabase = createServiceClient();
+  const tags = mergeTags(Array.isArray(payload?.parsed_tags) ? payload.parsed_tags.map((item: unknown) => String(item || "")) : [], manualTags);
+  const slug = slugify(manualSlug || fallbackTitle);
+  const supabase = createLocalsClient(locals);
+  const storage = createServiceClient().storage.from("blog-markdown");
   const storageName = storageSafeName(slug, "post");
   const storagePath = `${user.id}/${storageName}-${Date.now()}-${crypto.randomUUID()}.md`;
-  const { data: existingPost, error: existingError } = await supabase
+  const { data: existingPost } = await supabase
     .from("blog_posts")
-    .select("id,author_id,storage_path")
+    .select("id,storage_path")
     .eq("slug", slug)
+    .eq("author_id", user.id)
     .maybeSingle();
-
-  if (existingError) {
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(existingError.message)}`, 303);
-  }
-
-  if (existingPost && existingPost.author_id !== user.id) {
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("This post slug is already used by another account.")}`, 303);
-  }
 
   try {
     await ensureStorageBuckets();
@@ -71,8 +61,7 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(message)}`, 303);
   }
 
-  const encryptedContent = encryptPrivateText(content);
-  const { error: uploadError } = await supabase.storage.from("blog-markdown").upload(storagePath, new Blob([encryptedContent]), {
+  const { error: uploadError } = await storage.upload(storagePath, new Blob([content]), {
     contentType: "text/plain; charset=utf-8",
     upsert: false,
   });
@@ -84,9 +73,9 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
   const { error: upsertError } = await supabase.from("blog_posts").upsert(
     {
       slug,
-      title: encryptPrivateText(parsed.title),
-      excerpt: encryptPrivateText(parsed.excerpt.slice(0, 320)),
-      content_markdown: encryptedContent,
+      title,
+      excerpt,
+      content_markdown: content,
       storage_path: storagePath,
       author_id: user.id,
       tags,
@@ -96,13 +85,20 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
   );
 
   if (upsertError) {
-    await supabase.storage.from("blog-markdown").remove([storagePath]);
+    await storage.remove([storagePath]);
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(upsertError.message)}`, 303);
   }
 
   if (existingPost?.storage_path && existingPost.storage_path !== storagePath) {
-    await supabase.storage.from("blog-markdown").remove([existingPost.storage_path]);
+    await storage.remove([existingPost.storage_path]).catch(() => undefined);
   }
 
-  return redirect(`/blog/${encodeURIComponent(slug)}`, 303);
+  return json({ ok: true, slug });
 };
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}

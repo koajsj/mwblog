@@ -1,6 +1,8 @@
 ---
+import { safeLocalRedirect } from "../../lib/redirect";
+
 const error = Astro.url.searchParams.get("error");
-const redirectTo = Astro.url.searchParams.get("redirect") || "/?skipCover=1#home";
+const redirectTo = safeLocalRedirect(Astro.url.searchParams.get("redirect") || "", "/?skipCover=1#home");
 ---
 
 <!DOCTYPE html>
@@ -11,16 +13,17 @@ const redirectTo = Astro.url.searchParams.get("redirect") || "/?skipCover=1#home
     <title>Log in · Our Nest</title>
     <link rel="icon" type="image/png" href="/浏览器图标.png" />
     <script is:inline>document.documentElement.classList.add("site-loading");</script>
+    <link rel="stylesheet" href="/styles/site-font.css" />
     <link rel="stylesheet" href="/styles/site-loader.css" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
       *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
       body {
-        font-family: "Inter", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+        min-height: 100vh;
+        min-height: 100dvh;
+        font-family: var(--site-font);
         background: #1a1a2e;
         overflow: hidden;
-        height: 100vh;
       }
 
       a { text-decoration: none; color: inherit; }
@@ -52,7 +55,8 @@ const redirectTo = Astro.url.searchParams.get("redirect") || "/?skipCover=1#home
       #login-page {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        height: 100vh;
+        min-height: 100vh;
+        min-height: 100dvh;
       }
 
       /* Left Panel */
@@ -195,7 +199,7 @@ const redirectTo = Astro.url.searchParams.get("redirect") || "/?skipCover=1#home
       .form-options {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        justify-content: flex-start;
         margin-bottom: 24px;
       }
       .remember-me {
@@ -212,14 +216,6 @@ const redirectTo = Astro.url.searchParams.get("redirect") || "/?skipCover=1#home
         accent-color: #5b21b6;
         cursor: pointer;
       }
-      .forgot-link {
-        font-size: 13px;
-        color: #5b21b6;
-        font-weight: 500;
-        transition: opacity 0.2s;
-      }
-      .forgot-link:hover { opacity: 0.8; }
-
       .btn-login {
         position: relative;
         width: 100%;
@@ -336,6 +332,25 @@ const redirectTo = Astro.url.searchParams.get("redirect") || "/?skipCover=1#home
         #login-page { grid-template-columns: 1fr; }
         .left-panel { display: none; }
         .back-btn { background: rgba(255, 255, 255, 0.92); color: #1a1a2e; }
+        .right-panel {
+          min-height: 100dvh;
+          padding: 88px 22px max(30px, env(safe-area-inset-bottom));
+        }
+        .form-group input { font-size: 16px; }
+        .toggle-password {
+          min-width: 44px;
+          min-height: 44px;
+        }
+        .form-header { margin-bottom: 30px; }
+        .form-options { align-items: flex-start; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          scroll-behavior: auto !important;
+          animation: none !important;
+          transition: none !important;
+        }
       }
     </style>
   </head>
@@ -418,8 +433,8 @@ const redirectTo = Astro.url.searchParams.get("redirect") || "/?skipCover=1#home
             </svg>
           </div>
           <div class="form-header">
-            <h1>Welcome Back</h1>
-            <p>Enter your details to continue</p>
+            <h1>Welcome Home</h1>
+            <p>This private door only opens for the two of you.</p>
           </div>
 
           <form id="login-form" action="/api/auth/login" method="post" novalidate>
@@ -453,14 +468,13 @@ const redirectTo = Astro.url.searchParams.get("redirect") || "/?skipCover=1#home
               <label class="remember-me">
                 <input type="checkbox" name="remember" checked /> Remember me for 30 days
               </label>
-              <a href="#" class="forgot-link" tabindex="-1" aria-disabled="true" title="This feature is not available yet">Forgot password?</a>
             </div>
 
-            <div class="error-msg" id="error-msg" style={error ? "display:block" : ""}>{error || ""}</div>
+            <div class="error-msg" id="error-msg" role="alert" aria-live="assertive" style={error ? "display:block" : ""}>{error || ""}</div>
 
             <button type="submit" class="btn-login" id="btn-login">
               <span class="btn-text">Log in</span>
-              <div class="btn-hover-content">
+              <div class="btn-hover-content" aria-hidden="true">
                 <span>Log in</span>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="5" y1="12" x2="19" y2="12" />
@@ -483,6 +497,7 @@ const redirectTo = Astro.url.searchParams.get("redirect") || "/?skipCover=1#home
       const toggleBtn = document.getElementById("toggle-password");
       const eyeIcon = document.getElementById("eye-icon");
       const eyeOffIcon = document.getElementById("eye-off-icon");
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       let showPassword = false;
       let isLoginError = false;
 
@@ -492,7 +507,7 @@ const redirectTo = Astro.url.searchParams.get("redirect") || "/?skipCover=1#home
         eyeIcon.style.display = showPassword ? "none" : "block";
         eyeOffIcon.style.display = showPassword ? "block" : "none";
         updateCharacters();
-        if (showPassword) schedulePeek();
+        if (showPassword && !reduceMotion) schedulePeek();
       });
 
       // ============ MOUSE TRACKING & CHARACTER ANIMATION ============
@@ -506,11 +521,13 @@ const redirectTo = Astro.url.searchParams.get("redirect") || "/?skipCover=1#home
       let typingTimer = null;
       let isPasswordFocused = false;
 
-      document.addEventListener("mousemove", (e) => {
-        mouseX = e.clientX;
-        mouseY = e.clientY;
-        if (!isTyping && !isLoginError) updateCharacters();
-      });
+      if (!reduceMotion) {
+        document.addEventListener("mousemove", (e) => {
+          mouseX = e.clientX;
+          mouseY = e.clientY;
+          if (!isTyping && !isLoginError) updateCharacters();
+        });
+      }
 
       emailInput.addEventListener("focus", () => setTyping(true));
       emailInput.addEventListener("blur", () => setTyping(false));
@@ -557,8 +574,10 @@ const redirectTo = Astro.url.searchParams.get("redirect") || "/?skipCover=1#home
           }, 150);
         }, Math.random() * 4000 + 3000);
       }
-      scheduleBlinkPurple();
-      scheduleBlinkBlack();
+      if (!reduceMotion) {
+        scheduleBlinkPurple();
+        scheduleBlinkBlack();
+      }
 
       function schedulePeek() {
         if (passwordInput.value.length > 0 && showPassword) {

@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
 import { safeLocalRedirect } from "../../../lib/redirect";
-import { createServiceClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/supabase";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const user = locals.user;
@@ -14,7 +14,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${failTo}${failTo.includes("?") ? "&" : "?"}error=${encodeURIComponent("Missing activity record ID.")}`, 303);
   }
 
-  const supabase = createServiceClient();
+  const supabase = createLocalsClient(locals);
   const { error } = await supabase
     .from("activity_entries")
     .delete()

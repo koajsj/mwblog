@@ -1,9 +1,8 @@
 import type { APIRoute } from "astro";
 import { ACTIVITY_CATEGORIES } from "../../../lib/types";
 import { safeLocalRedirect } from "../../../lib/redirect";
-import { encryptPrivateText } from "../../../lib/private-data";
-import { isDateKey } from "../../../lib/datetime";
-import { createServiceClient } from "../../../lib/supabase";
+import { readEncryptedText } from "../../../lib/private-payload";
+import { createLocalsClient } from "../../../lib/supabase";
 
 const fallbackCategory = ACTIVITY_CATEGORIES[ACTIVITY_CATEGORIES.length - 1];
 
@@ -26,7 +25,6 @@ function minutesOfClock(value: string) {
 function durationMinutes(startTime: string, endTime: string) {
   const start = minutesOfClock(startTime);
   const end = minutesOfClock(endTime);
-  if (end === start) return 0;
   return end > start ? end - start : end + 1440 - start;
 }
 
@@ -51,22 +49,23 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
 
   const form = await request.formData();
   const activityOn = String(form.get("activity_on") || "").trim();
-  const body = String(form.get("body") || "").trim();
-  const startTime = normalizeTime(form.get("start_time"));
-  const endTime = normalizeTime(form.get("end_time"));
   const returnTo = String(form.get("return_to") || "/activity");
   const failTo = safeLocalRedirect(returnTo, "/activity");
+  let body = "";
+  try {
+    body = readEncryptedText(form.get("body"), { maxLength: 4096 });
+  } catch (error) {
+    return redirect(withError(failTo, error instanceof Error ? error.message : "Invalid encrypted activity content."), 303);
+  }
+  const startTime = normalizeTime(form.get("start_time"));
+  const endTime = normalizeTime(form.get("end_time"));
 
-  if (!isDateKey(activityOn)) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(activityOn)) {
     return redirect(withError(failTo, "Please choose an activity date."), 303);
   }
 
   if (!body) {
     return redirect(withError(failTo, "Please enter a task name."), 303);
-  }
-
-  if (body.length > 80) {
-    return redirect(withError(failTo, "Task names must be 80 characters or fewer."), 303);
   }
 
   if (!startTime || !endTime) {
@@ -78,14 +77,14 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(withError(failTo, "End time must be after start time. Overnight tasks are supported."), 303);
   }
 
-  const supabase = createServiceClient();
+  const supabase = createLocalsClient(locals);
   const { error } = await supabase.from("activity_entries").insert({
     owner_id: user.id,
     activity_on: activityOn,
     period: periodForTime(startTime),
     category: fallbackCategory,
     minutes,
-    body: encryptPrivateText(body),
+    body,
     start_time: startTime,
     end_time: endTime,
   });

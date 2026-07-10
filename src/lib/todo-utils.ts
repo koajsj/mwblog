@@ -1,5 +1,4 @@
-import { ACTIVITY_CATEGORIES } from "./types.ts";
-import { isDateKey } from "./datetime.ts";
+import { ACTIVITY_CATEGORIES } from "./types";
 
 export const TODO_ACTIVITY_CATEGORY = ACTIVITY_CATEGORIES[ACTIVITY_CATEGORIES.length - 1];
 
@@ -12,7 +11,7 @@ export function json(data: unknown, status = 200) {
 
 export function normalizeDate(value: FormDataEntryValue | string | null) {
   const raw = String(value || "").trim();
-  return isDateKey(raw) ? raw : null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
 }
 
 export function normalizeTime(value: FormDataEntryValue | string | null) {
@@ -34,7 +33,6 @@ export function minutesOfClock(value: string) {
 export function durationMinutes(startTime: string, endTime: string) {
   const start = minutesOfClock(startTime);
   const end = minutesOfClock(endTime);
-  if (end === start) return 0;
   return end > start ? end - start : end + 1440 - start;
 }
 

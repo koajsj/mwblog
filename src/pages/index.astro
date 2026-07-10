@@ -1,20 +1,25 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
-import { createServiceClient } from "../lib/supabase";
-import { attachPrivatePhotoUrls } from "../lib/storage";
-import { markdownToPlainText } from "../lib/markdown";
-import { decryptPrivateRows } from "../lib/private-data";
-import { shanghaiDateKey } from "../lib/datetime";
-import { AUTHOR_LABELS } from "../lib/types";
-import type { AuthorKey, BlogPost, Photo, Place, PlaceTone, Profile } from "../lib/types";
+import { createLocalsClient } from "../lib/supabase";
+import { AUTHOR_LABELS, MOOD_LABELS } from "../lib/types";
+import type { AuthorKey, BlogPost, LifeRecord, Photo, Place, PlaceTone, Profile } from "../lib/types";
 
 const user = Astro.locals.user;
 const profile = Astro.locals.profile;
 const authorKey = (profile?.author_key || "white") as AuthorKey;
+const homeWelcomeName = profile?.display_name || AUTHOR_LABELS[authorKey];
 
-const supabase = createServiceClient();
+const supabase = createLocalsClient(Astro.locals);
 
-const [{ data: posts }, { data: photos }, { data: placeRows }] = await Promise.all([
+const [
+  { data: posts },
+  { data: photos },
+  { data: placeRows },
+  { data: recordRows },
+  { data: firstRecordRows },
+  { data: firstPostRows },
+  { data: firstPhotoRows },
+] = await Promise.all([
   supabase
     .from("blog_posts")
     .select("id,slug,title,excerpt,tags,published_at,created_at,profiles(display_name,author_key)")
@@ -30,18 +35,39 @@ const [{ data: posts }, { data: photos }, { data: placeRows }] = await Promise.a
     .select("id,name,note,tone,created_at")
     .order("created_at", { ascending: false })
     .limit(3),
+  supabase
+    .from("life_records")
+    .select("id,record_on,mood,body,created_at,profiles(display_name,author_key)")
+    .order("record_on", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(4),
+  supabase
+    .from("life_records")
+    .select("record_on")
+    .order("record_on", { ascending: true })
+    .limit(1),
+  supabase
+    .from("blog_posts")
+    .select("created_at,published_at")
+    .order("created_at", { ascending: true })
+    .limit(1),
+  supabase
+    .from("photos")
+    .select("created_at,taken_on")
+    .order("created_at", { ascending: true })
+    .limit(1),
 ]);
-const dbPlaces = decryptPrivateRows((placeRows || []) as Place[], ["name", "note"]);
+const dbPlaces = (placeRows || []) as Place[];
 
-const recentPosts = decryptPrivateRows((posts || []) as BlogPost[], ["title", "excerpt"]);
-const recentPhotos = await attachPrivatePhotoUrls(decryptPrivateRows((photos || []) as Photo[], ["title", "caption"]));
+const recentPosts = (posts || []) as BlogPost[];
+const recentPhotos = (photos || []) as Photo[];
+const recentRecords = (recordRows || []) as LifeRecord[];
 const displayPhotos = recentPhotos.slice(0, 5);
-// 不论是否登录都拉两个作者的资料 + 已同步的状态，让访客也能看到双方的状态
 const { data: profileRows } = await supabase
   .from("profiles")
   .select("id,email,author_key,display_name,weather_text,weather_updated_at,mood_text,mood_date,doing_text,doing_date,created_at")
   .in("author_key", ["white", "brown"]);
-const homeProfiles = decryptPrivateRows((profileRows || []) as Profile[], ["weather_text", "weather_label", "mood_text", "doing_text"]);
+const homeProfiles = (profileRows || []) as Profile[];
 const whiteProfile = homeProfiles.find((p) => p.author_key === "white");
 const brownProfile = homeProfiles.find((p) => p.author_key === "brown");
 const whiteDisplayName = whiteProfile?.display_name || "White";
@@ -51,7 +77,11 @@ const brownWeather = brownProfile?.weather_text || "";
 const currentWeatherWho = user ? profile?.author_key || "" : "";
 
 // mood / doing 当日才有效，过期就回到默认占位
-const todayKey = shanghaiDateKey();
+const todayKey = (() => {
+  const d = new Date();
+  const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+})();
 const todayField = (p: Profile | undefined, field: "mood" | "doing") => {
   if (!p) return "";
   const date = field === "mood" ? p.mood_date : p.doing_date;
@@ -62,19 +92,174 @@ const whiteMoodDefault = "Softly happy";
 const brownMoodDefault = "Full of energy";
 const whiteDoingDefault = "Sorting today's small notes";
 const brownDoingDefault = "Planning the next outing";
-const whiteMood = todayField(whiteProfile, "mood") || whiteMoodDefault;
-const brownMood = todayField(brownProfile, "mood") || brownMoodDefault;
-const whiteDoing = todayField(whiteProfile, "doing") || whiteDoingDefault;
-const brownDoing = todayField(brownProfile, "doing") || brownDoingDefault;
+const whiteMood = todayField(whiteProfile, "mood") || "";
+const brownMood = todayField(brownProfile, "mood") || "";
+const whiteDoing = todayField(whiteProfile, "doing") || "";
+const brownDoing = todayField(brownProfile, "doing") || "";
 
 // 只能编辑自己那一侧；未登录则双方都不可编辑
 const canEditWhite = currentWeatherWho === "white";
 const canEditBrown = currentWeatherWho === "brown";
-const displayPostTitle = (post: BlogPost) => markdownToPlainText(post.title || "") || post.title;
 
 const skipCoverOnLoad = Astro.url.searchParams.get("skipCover") === "1";
 const homePlaces = dbPlaces.map((p) => ({ name: p.name, note: p.note, tone: p.tone as PlaceTone }));
 const formatPostDate = (date: string) => new Date(date).toLocaleDateString("zh-CN").replaceAll("/", ".");
+
+function normalizeDate(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
+function formatMonthDay(value: string) {
+  const [yyyy, mm, dd] = value.split("-");
+  return `${mm}.${dd}`;
+}
+
+function formatFullDate(value: string) {
+  const [yyyy, mm, dd] = value.split("-");
+  return `${yyyy}.${mm}.${dd}`;
+}
+
+function dayCountFrom(value: string) {
+  const start = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const delta = Math.floor((current.getTime() - start.getTime()) / 86400000);
+  return Math.max(1, delta + 1);
+}
+
+function nextDateLabel(value: string) {
+  const [, month, day] = value.split("-").map(Number);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let next = new Date(today.getFullYear(), month - 1, day);
+  if (next < today) next = new Date(today.getFullYear() + 1, month - 1, day);
+  const days = Math.round((next.getTime() - today.getTime()) / 86400000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  return `In ${days} days`;
+}
+
+type ImportantDate = {
+  label: string;
+  date: string;
+  note: string;
+};
+
+function parseImportantDates(raw: string | undefined) {
+  if (!raw) return [] as ImportantDate[];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [] as ImportantDate[];
+    return parsed
+      .map((item) => {
+        const label = String(item?.label || "").trim();
+        const date = normalizeDate(item?.date);
+        const note = String(item?.note || "").trim();
+        if (!label || !date) return null;
+        return { label, date, note };
+      })
+      .filter(Boolean) as ImportantDate[];
+  } catch {
+    return [] as ImportantDate[];
+  }
+}
+
+const configuredLoveStart = normalizeDate(import.meta.env.HOME_LOVE_START_DATE);
+const oldestRecordDate = normalizeDate((firstRecordRows?.[0] as { record_on?: string } | undefined)?.record_on);
+const oldestPostDate = normalizeDate(
+  (firstPostRows?.[0] as { published_at?: string | null; created_at?: string | null } | undefined)?.published_at
+  || (firstPostRows?.[0] as { created_at?: string | null } | undefined)?.created_at,
+);
+const oldestPhotoDate = normalizeDate(
+  (firstPhotoRows?.[0] as { taken_on?: string | null; created_at?: string | null } | undefined)?.taken_on
+  || (firstPhotoRows?.[0] as { created_at?: string | null } | undefined)?.created_at,
+);
+const oldestProfileDate = normalizeDate(
+  homeProfiles
+    .map((item) => item.created_at)
+    .filter(Boolean)
+    .sort()[0],
+);
+const spaceStartDate = configuredLoveStart || oldestRecordDate || oldestPostDate || oldestPhotoDate || oldestProfileDate;
+const dayCounter = spaceStartDate ? dayCountFrom(spaceStartDate) : 0;
+const dayCounterLabel = configuredLoveStart ? "Together days" : "Nest days";
+const dayCounterHint = configuredLoveStart ? `Since ${formatFullDate(configuredLoveStart)}` : "Counting from the first saved memory";
+
+const milestoneDates: ImportantDate[] = [
+  configuredLoveStart ? { label: "Our day one", date: configuredLoveStart, note: "The start of this little private world." } : null,
+  oldestRecordDate ? { label: "First memory", date: oldestRecordDate, note: "The first line kept in Records." } : null,
+  oldestPostDate ? { label: "First diary", date: oldestPostDate, note: "The first journal entry in Blog." } : null,
+  oldestPhotoDate ? { label: "First photo", date: oldestPhotoDate, note: "The first photo still kept in the wall." } : null,
+].filter(Boolean) as ImportantDate[];
+
+const importantDates = (() => {
+  const configured = parseImportantDates(import.meta.env.HOME_IMPORTANT_DATES);
+  const seen = new Set<string>();
+  const merged: ImportantDate[] = [];
+  [...configured, ...milestoneDates].forEach((item) => {
+    const key = `${item.label}|${item.date}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(item);
+  });
+  return merged.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 4);
+})();
+
+const randomMemoryDeck = [
+  ...recentRecords.map((record) => ({
+    id: `record-${record.id}`,
+    href: "/records",
+    kind: "Memory",
+    accent: (record.profiles?.author_key || "white") as AuthorKey,
+    meta: `${record.profiles?.display_name || AUTHOR_LABELS[(record.profiles?.author_key || "white") as AuthorKey]} · ${MOOD_LABELS[record.mood] || record.mood}`,
+    date: record.record_on,
+    title: "",
+    body: record.body,
+    titleFallback: "A note from that day",
+    bodyFallback: "Unlock to read this memory.",
+  })),
+  ...recentPosts.map((post) => ({
+    id: `post-${post.id}`,
+    href: `/blog/${post.slug}`,
+    kind: "Diary",
+    accent: (post.profiles?.author_key || "white") as AuthorKey,
+    meta: post.profiles?.display_name || "Our Nest",
+    date: normalizeDate(post.published_at || post.created_at),
+    title: post.title,
+    body: post.excerpt || post.title,
+    titleFallback: "Private diary",
+    bodyFallback: "Unlock to read this diary note.",
+  })),
+  ...displayPhotos.map((photo) => ({
+    id: `photo-${photo.id}`,
+    href: "/photos",
+    kind: "Photo",
+    accent: (photo.profiles?.author_key || "white") as AuthorKey,
+    meta: photo.profiles?.display_name || "Our Nest",
+    date: normalizeDate(photo.taken_on || photo.created_at),
+    title: photo.title || photo.caption || "",
+    body: photo.caption || photo.title || "",
+    titleFallback: "A saved photo",
+    bodyFallback: "Unlock to read the note behind this photo.",
+  })),
+  ...homePlaces.map((place, index) => ({
+    id: `place-${index}`,
+    href: "/places",
+    kind: "Place",
+    accent: place.tone,
+    meta: "Wish list",
+    date: "",
+    title: place.name,
+    body: place.note,
+    titleFallback: "Locked place",
+    bodyFallback: "Unlock to read this place card.",
+  })),
+].slice(0, 10);
 ---
 
 <PrototypeLayout
@@ -162,8 +347,110 @@ const formatPostDate = (date: string) => new Date(date).toLocaleDateString("zh-C
       <div class="home-avatar" aria-hidden="true">
         <img class="home-avatar__img" src="/assets/首页头像.webp" alt="" />
       </div>
-      <p class="home-kicker">Two little dogs, one little home</p>
+      <p class="home-kicker">Welcome home, {homeWelcomeName}</p>
       <h1 id="homeTitle">Our Nest</h1>
+      <p class="home-hero__text">
+        A closed little space for just the two of you: today’s mood, old memories, photos, diaries, and the small things worth keeping.
+      </p>
+      <nav class="home-quicklinks" aria-label="Home quick links">
+        <a href="/records">Recent memories</a>
+        <a href="/photos">Photo wall</a>
+        <a href="/blog">Diary</a>
+        <a href="/todo">Today plan</a>
+        <a href="/places">Wish list</a>
+      </nav>
+    </section>
+
+    <section class="home-overview" aria-labelledby="overviewTitle">
+      <div class="home-section-head">
+        <div>
+          <p class="home-section-head__kicker">Private entrance</p>
+          <h2 id="overviewTitle">The center of your two-person space</h2>
+        </div>
+      </div>
+
+      <div class="home-overview__grid">
+        <article class="home-summary-card home-summary-card--days">
+          <p class="home-summary-card__label">{dayCounterLabel}</p>
+          <p class="home-summary-card__value" aria-label={dayCounter ? `${dayCounter} days` : "Day count is waiting for a start date"}>
+            {dayCounter ? dayCounter : "..."}
+            {dayCounter > 0 && <span class="home-summary-card__unit">days</span>}
+          </p>
+          <p class="home-summary-card__hint">{dayCounterHint}</p>
+        </article>
+
+        <article class="home-summary-card home-summary-card--dates">
+          <div class="home-summary-card__top">
+            <div>
+              <p class="home-summary-card__label">Important dates</p>
+              <p class="home-summary-card__hint">A few anchor points you can come back to.</p>
+            </div>
+          </div>
+          <div class="home-date-list">
+            {importantDates.length ? importantDates.map((item) => (
+              <article class="home-date-item">
+                <time datetime={item.date}>{formatMonthDay(item.date)}</time>
+                <div>
+                  <strong>{item.label}</strong>
+                  <span>{item.note}</span>
+                  <span class="home-date-item__countdown">{nextDateLabel(item.date)}</span>
+                </div>
+              </article>
+            )) : (
+              <p class="home-empty-inline">No date card yet.</p>
+            )}
+          </div>
+        </article>
+
+        <section class="home-random" aria-labelledby="randomMemoryTitle">
+          <div class="home-random__head">
+            <div>
+              <p class="home-section-head__kicker">Random pick</p>
+              <h3 id="randomMemoryTitle">Random memory card</h3>
+            </div>
+            <button class="home-random__shuffle" id="homeRandomShuffle" type="button" aria-controls="homeRandomDeck">Shuffle</button>
+          </div>
+          <div class="home-random__deck" id="homeRandomDeck" aria-live="polite">
+            {randomMemoryDeck.length ? randomMemoryDeck.map((item, index) => (
+              <a
+                class={`home-random-card home-random-card--${item.accent} ${index === 0 ? "is-active" : ""}`}
+                href={item.href}
+                data-memory-card
+              >
+                <p class="home-random-card__kind">{item.kind}</p>
+                <h4
+                  data-private-text={item.title}
+                  data-private-fallback={item.titleFallback}
+                >{item.titleFallback}</h4>
+                <p
+                  class="home-random-card__body"
+                  data-private-text={item.body}
+                  data-private-fallback={item.bodyFallback}
+                >{item.bodyFallback}</p>
+                <div class="home-random-card__meta">
+                  <span>{item.meta}</span>
+                  {item.date && <time datetime={item.date}>{formatFullDate(item.date)}</time>}
+                </div>
+              </a>
+            )) : (
+              <article class="home-random-card home-random-card--empty is-active">
+                <p class="home-random-card__kind">Memory</p>
+                <h4>Nothing saved yet</h4>
+                <p class="home-random-card__body">Once you add photos, records, or diary entries, a random memory will appear here.</p>
+              </article>
+            )}
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="home-status-section" aria-labelledby="statusTitle">
+      <div class="home-section-head">
+        <div>
+          <p class="home-section-head__kicker">Today</p>
+          <h2 id="statusTitle">Today status</h2>
+        </div>
+      </div>
 
       <div class="home-duo-status" aria-label="Today status">
         <article class="home-status home-status--white">
@@ -177,12 +464,12 @@ const formatPostDate = (date: string) => new Date(date).toLocaleDateString("zh-C
                   id="whiteWeather"
                   data-server-weather={whiteWeather}
                   data-updated={whiteProfile?.weather_updated_at ?? ""}
-                >{whiteWeather || "Location pending · Weather pending"}</dd>
+                >{"Location pending · Weather pending"}</dd>
               </div>
               <div>
                 <dt>Mood</dt>
                 <dd class="home-status__editable">
-                  <span id="whiteMood" data-server-text={whiteMood}>{whiteMood}</span>
+                  <span id="whiteMood" data-server-text={whiteMood}>{whiteMoodDefault}</span>
                   {canEditWhite && (
                     <button class="home-status__edit" type="button" data-who="white" data-field="mood" aria-label={`Edit ${whiteDisplayName}'s mood`}>Edit</button>
                   )}
@@ -191,7 +478,7 @@ const formatPostDate = (date: string) => new Date(date).toLocaleDateString("zh-C
               <div>
                 <dt>Doing</dt>
                 <dd class="home-status__editable">
-                  <span id="whiteDoing" data-server-text={whiteDoing}>{whiteDoing}</span>
+                  <span id="whiteDoing" data-server-text={whiteDoing}>{whiteDoingDefault}</span>
                   {canEditWhite && (
                     <button class="home-status__edit" type="button" data-who="white" data-field="doing" aria-label={`Edit what ${whiteDisplayName} is doing`}>Edit</button>
                   )}
@@ -212,12 +499,12 @@ const formatPostDate = (date: string) => new Date(date).toLocaleDateString("zh-C
                   id="brownWeather"
                   data-server-weather={brownWeather}
                   data-updated={brownProfile?.weather_updated_at ?? ""}
-                >{brownWeather || "Location pending · Weather pending"}</dd>
+                >{"Location pending · Weather pending"}</dd>
               </div>
               <div>
                 <dt>Mood</dt>
                 <dd class="home-status__editable">
-                  <span id="brownMood" data-server-text={brownMood}>{brownMood}</span>
+                  <span id="brownMood" data-server-text={brownMood}>{brownMoodDefault}</span>
                   {canEditBrown && (
                     <button class="home-status__edit" type="button" data-who="brown" data-field="mood" aria-label={`Edit ${brownDisplayName}'s mood`}>Edit</button>
                   )}
@@ -226,7 +513,7 @@ const formatPostDate = (date: string) => new Date(date).toLocaleDateString("zh-C
               <div>
                 <dt>Doing</dt>
                 <dd class="home-status__editable">
-                  <span id="brownDoing" data-server-text={brownDoing}>{brownDoing}</span>
+                  <span id="brownDoing" data-server-text={brownDoing}>{brownDoingDefault}</span>
                   {canEditBrown && (
                     <button class="home-status__edit" type="button" data-who="brown" data-field="doing" aria-label={`Edit what ${brownDisplayName} is doing`}>Edit</button>
                   )}
@@ -238,67 +525,118 @@ const formatPostDate = (date: string) => new Date(date).toLocaleDateString("zh-C
           <img class="home-status__dog" src="/assets/小棕首页形象.webp" alt={`${brownDisplayName} avatar`} />
         </article>
       </div>
-
-      <p class="home-hero__text">
-        A quiet place to write, keep photos, record daily life, and collect the little things that happen across the day.
-      </p>
     </section>
 
-    <section class="home-posts" aria-labelledby="postsTitle">
-      <h2 id="postsTitle">Posts</h2>
-      <div class="home-post-list">
-        {recentPosts.map((post) => (
-          <a href={`/blog/${post.slug}`}>
-            <time>{formatPostDate(post.published_at || post.created_at)}</time>
-            <span>{displayPostTitle(post)}</span>
-          </a>
-        ))}
+    <section class="home-memories" aria-labelledby="memoriesTitle">
+      <div class="home-section-head">
+        <div>
+          <p class="home-section-head__kicker">Records</p>
+          <h2 id="memoriesTitle">Recent memories</h2>
+        </div>
+        <a class="home-section-head__link" href="/records">View all</a>
+      </div>
+
+      <div class="home-memory-list" id="homeMemoryList">
+        {recentRecords.length ? recentRecords.map((record) => {
+          const owner = (record.profiles?.author_key || "white") as AuthorKey;
+          return (
+            <a class={`home-memory-card home-memory-card--${owner}`} href="/records">
+              <div class="home-memory-card__top">
+                <span>{record.profiles?.display_name || AUTHOR_LABELS[owner]}</span>
+                <time datetime={record.record_on}>{formatFullDate(record.record_on)}</time>
+              </div>
+              <p class="home-memory-card__mood">{MOOD_LABELS[record.mood] || record.mood}</p>
+              <p
+                class="home-memory-card__body"
+                data-private-text={record.body}
+                data-private-fallback="Unlock to read this memory."
+              >Unlock to read this memory.</p>
+            </a>
+          );
+        }) : (
+          <article class="home-empty-card">No records yet. Your next memory can start here.</article>
+        )}
       </div>
     </section>
 
     <section class="home-recent-photos" aria-labelledby="recentPhotosTitle">
-      <h2 id="recentPhotosTitle">Recent Photos</h2>
+      <div class="home-section-head">
+        <div>
+          <p class="home-section-head__kicker">Photos</p>
+          <h2 id="recentPhotosTitle">Recent photos</h2>
+        </div>
+        <a class="home-section-head__link" href="/photos">Open wall</a>
+      </div>
       <div class="home-photo-stage" id="homeRecentPhotos" aria-live="polite">
-        {displayPhotos.map((photo, index) => (
+        {displayPhotos.length ? displayPhotos.map((photo, index) => (
           <a class="home-photo-card" style={`--i:${index}`} href="/photos">
-            <img src={photo.publicUrl} alt={photo.title || photo.caption || "Photo"} loading="lazy" />
+            <img data-private-photo={`/api/photos/file?id=${encodeURIComponent(photo.id)}`} alt="Private photo" loading="lazy" />
             <span class="home-photo-card__meta">
-              <span>{photo.title || "A small photo"}</span>
+              <span data-private-text={photo.title || photo.caption || ""} data-private-fallback="A small photo">A small photo</span>
               <small>{photo.taken_on || photo.profiles?.display_name || "Nest"}</small>
             </span>
           </a>
-        ))}
+        )) : (
+          <div class="home-photo-empty">No photo yet. The wall is waiting for the next moment.</div>
+        )}
+      </div>
+    </section>
+
+    <section class="home-posts" aria-labelledby="postsTitle">
+      <div class="home-section-head">
+        <div>
+          <p class="home-section-head__kicker">Blog</p>
+          <h2 id="postsTitle">Recent diary</h2>
+        </div>
+        <a class="home-section-head__link" href="/blog">Read all</a>
+      </div>
+      <div class="home-journal-list" id="homeJournalList">
+        {recentPosts.length ? recentPosts.map((post) => (
+          <a class="home-journal-card" href={`/blog/${post.slug}`}>
+            <time datetime={normalizeDate(post.published_at || post.created_at)}>{formatPostDate(post.published_at || post.created_at)}</time>
+            <h3 data-private-text={post.title} data-private-fallback="Private diary">Private diary</h3>
+            <p data-private-text={post.excerpt || ""} data-private-fallback="Unlock to read the latest diary note.">Unlock to read the latest diary note.</p>
+          </a>
+        )) : (
+          <article class="home-empty-card">No diary yet. The first entry can begin any day.</article>
+        )}
       </div>
     </section>
 
     <section class="home-places" aria-labelledby="placesTitle">
-      <h2 id="placesTitle">Places</h2>
+      <div class="home-section-head">
+        <div>
+          <p class="home-section-head__kicker">Future list</p>
+          <h2 id="placesTitle">Places</h2>
+        </div>
+        <a class="home-section-head__link" href="/places">View all</a>
+      </div>
       <div class="home-places__body">
         <div class="home-places__head">
           <div>
             <p class="home-places__kicker">Places for this year</p>
             <p class="home-places__count" id="placeCount">{homePlaces.length} destinations</p>
           </div>
-          <a class="home-places__toggle" href="/places">View all →</a>
         </div>
 
         <div class="place-stage" id="placeList" aria-live="polite">
-          {homePlaces.map((place) => (
+          {homePlaces.length ? homePlaces.map((place) => (
             <article class={`place-card place-card--${place.tone}`} tabindex="0">
               <div class="place-card__art">
                 <span class={place.tone === "night" ? "place-card__moon" : "place-card__sun"}></span>
                 <span class="place-card__land"></span>
               </div>
               <div class="place-card__content">
-                <h3 class="place-card__name">{place.name}</h3>
-                <p class="place-card__note">{place.note}</p>
+                <h3 class="place-card__name" data-private-text={place.name} data-private-fallback="Locked place"></h3>
+                <p class="place-card__note" data-private-text={place.note} data-private-fallback="Unlock to read the note."></p>
               </div>
             </article>
-          ))}
+          )) : (
+            <article class="home-empty-card">No place card yet. Add a destination for the two of you.</article>
+          )}
         </div>
       </div>
     </section>
-
   </main>
 
   <div class="status-editor is-hidden" id="statusEditor" role="dialog" aria-modal="true" aria-labelledby="statusEditorTitle">

@@ -338,6 +338,24 @@ body {
 .todo-list {
   margin-top: 8px;
 }
+.todo-loading {
+  display: grid;
+  gap: 10px;
+  padding: 10px 0 2px;
+}
+.todo-loading span {
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(100deg, rgba(255,255,255,.36) 20%, rgba(255,255,255,.78) 44%, rgba(255,255,255,.36) 68%);
+  background-size: 220% 100%;
+  animation: todo-loading 1.25s ease-in-out infinite;
+}
+.todo-loading span:nth-child(2) { animation-delay: .09s; }
+.todo-loading span:nth-child(3) { animation-delay: .18s; }
+@keyframes todo-loading {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
 .todo-item {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) 30px;
@@ -812,6 +830,22 @@ body {
     width: 100%;
     margin-left: 0;
   }
+  .todo-new {
+    grid-template-columns: 34px minmax(0, 1fr) 44px;
+  }
+  .todo-new > input:not(.todo-new-due) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .todo-new-due {
+    grid-column: 2 / 4;
+    grid-row: 2;
+    width: 100%;
+  }
+  .todo-new button:last-child {
+    grid-column: 3;
+    grid-row: 1;
+  }
   .todo-ring-row {
     grid-template-columns: 1fr;
   }
@@ -824,5 +858,11 @@ body {
   .todo-range-row > button {
     grid-column: 2;
     justify-self: end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .todo-loading span {
+    animation: none;
   }
 }

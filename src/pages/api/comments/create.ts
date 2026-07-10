@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
 import { safeLocalRedirect } from "../../../lib/redirect";
-import { encryptPrivateText } from "../../../lib/private-data";
-import { createServiceClient } from "../../../lib/supabase";
+import { readEncryptedText } from "../../../lib/private-payload";
+import { createLocalsClient } from "../../../lib/supabase";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const user = locals.user;
@@ -10,13 +10,18 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const form = await request.formData();
   const targetType = String(form.get("target_type") || "").trim();
   const targetId = String(form.get("target_id") || "").trim();
-  const body = String(form.get("body") || "").trim();
   const rawReturn = String(form.get("return_to") || "").trim();
   const safeReturn = safeLocalRedirect(rawReturn, "/");
   const errorRedirect = (msg: string) => {
     const sep = safeReturn.includes("?") ? "&" : "?";
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(msg)}`, 303);
   };
+  let body = "";
+  try {
+    body = readEncryptedText(form.get("body"), { maxLength: 4096 });
+  } catch (error) {
+    return errorRedirect(error instanceof Error ? error.message : "Invalid encrypted comment.");
+  }
 
   if (targetType !== "blog" && targetType !== "record") {
     return errorRedirect("Invalid comment target.");
@@ -24,26 +29,23 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   if (!targetId) {
     return errorRedirect("Missing comment target id.");
   }
-  if (!body || body.length > 500) {
+  if (!body) {
     return errorRedirect("Comment must be between 1 and 500 characters.");
   }
 
-  const supabase = createServiceClient();
-  const targetTable = targetType === "blog" ? "blog_posts" : "life_records";
-  const { data: target, error: targetError } = await supabase
-    .from(targetTable)
-    .select("id")
-    .eq("id", targetId)
-    .maybeSingle();
-
+  const supabase = createLocalsClient(locals);
+  const targetQuery = targetType === "blog"
+    ? supabase.from("blog_posts").select("id").eq("id", targetId)
+    : supabase.from("life_records").select("id").eq("id", targetId);
+  const { data: target, error: targetError } = await targetQuery.maybeSingle();
   if (targetError) return errorRedirect(targetError.message);
-  if (!target) return errorRedirect("Comment target was not found.");
+  if (!target) return errorRedirect("Comment target not found.");
 
   const { error } = await supabase.from("comments").insert({
     target_type: targetType,
     target_id: targetId,
     author_id: user.id,
-    body: encryptPrivateText(body),
+    body,
   });
   if (error) return errorRedirect(error.message);
 

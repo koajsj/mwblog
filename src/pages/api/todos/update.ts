@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
-import { decryptPrivateFields, encryptPrivateText } from "../../../lib/private-data";
-import { createServiceClient } from "../../../lib/supabase";
+import { readEncryptedText } from "../../../lib/private-payload";
+import { createLocalsClient } from "../../../lib/supabase";
 import { json } from "../../../lib/todo-utils";
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -9,21 +9,25 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const form = await request.formData();
   const id = String(form.get("id") || "").trim();
-  const title = String(form.get("title") || "").trim();
+  let title = "";
+  try {
+    title = readEncryptedText(form.get("title"), { maxLength: 4096 });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Invalid task content." }, 400);
+  }
   if (!id) return json({ error: "Missing task id." }, 400);
   if (!title) return json({ error: "Please enter a task." }, 400);
-  if (title.length > 120) return json({ error: "Tasks must be 120 characters or fewer." }, 400);
 
-  const supabase = createServiceClient();
+  const supabase = createLocalsClient(locals);
   const { data, error } = await supabase
     .from("todos")
-    .update({ title: encryptPrivateText(title) })
+    .update({ title })
     .eq("id", id)
     .eq("owner_id", user.id)
-    .select("id,owner_id,title,completed,completed_on,completed_start_time,completed_end_time,completed_minutes,activity_entry_id,archived_at,created_at,updated_at,profiles(display_name,author_key)")
+    .select("id")
     .maybeSingle();
 
   if (error) return json({ error: error.message }, 500);
   if (!data) return json({ error: "Task not found." }, 404);
-  return json({ todo: decryptPrivateFields(data, ["title"]) });
+  return json({ ok: true });
 };

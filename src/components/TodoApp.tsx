@@ -23,6 +23,27 @@ interface ApiState {
   canEdit: boolean;
 }
 
+function privateSpaceApi() {
+  return (window as any).OurNestPrivate || null;
+}
+
+async function encryptPrivateTextValue(value: string) {
+  const api = privateSpaceApi();
+  if (!api?.encryptText) {
+    throw new Error("Private-space encryption is not ready.");
+  }
+  return api.encryptText(value);
+}
+
+async function decryptTodoRows(rows: TodoItem[]) {
+  const api = privateSpaceApi();
+  if (!api?.decryptText) return rows;
+  return Promise.all(rows.map(async (todo) => ({
+    ...todo,
+    title: await api.decryptText(todo.title),
+  })));
+}
+
 function todayKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -36,6 +57,10 @@ function addDays(date: Date, amount: number) {
 
 function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function weekdayLabel(date: Date) {
+  return new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" }).format(date);
 }
 
 // 把当天完成的总分钟数映射到 0-8 的色阶。阈值按真实的一天铺开，
@@ -84,7 +109,6 @@ function rangeMinutes(range: CompletionRange) {
   if (!isClock(range.start) || !isClock(range.end)) return 0;
   const start = minutesOfClock(range.start);
   const end = minutesOfClock(range.end);
-  if (end === start) return 0;
   return end > start ? end - start : end + 1440 - start;
 }
 
@@ -134,12 +158,15 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [message, setMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
   const [completionMessage, setCompletionMessage] = useState("");
   const [isCompleting, setIsCompleting] = useState(false);
   const [completionIds, setCompletionIds] = useState<string[]>([]);
   const [completionDate, setCompletionDate] = useState(todayKey());
   const [completionRanges, setCompletionRanges] = useState<CompletionRange[]>(() => [newRange()]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const modalCloseRef = useRef<HTMLButtonElement>(null);
+  const loadRequestRef = useRef(0);
 
   const selectedName = authorNames[view];
   const listTodos = todos.filter((todo) => !isArchived(todo));
@@ -187,19 +214,48 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
     const key = dateKey(addDays(new Date(), -index));
     return minutesByDay.get(key) || 0;
   }).reduce((sum, minutes) => sum + minutes, 0) / 7;
+  const todayLabel = weekdayLabel(new Date());
 
   async function loadTodos(nextView = view) {
-    const res = await fetch(`/api/todos?view=${nextView}`);
-    const data = (await res.json()) as ApiState & { error?: string };
-    if (!res.ok) throw new Error(data.error || "Failed to load tasks");
-    setTodos(data.todos || []);
-    setCanEdit(data.canEdit);
-    setMessage("");
+    const requestId = ++loadRequestRef.current;
+    setIsLoading(true);
+    const api = privateSpaceApi();
+    try {
+      if (!api?.ready) throw new Error("Private-space encryption is not ready.");
+      await api.ready();
+      const res = await fetch(`/api/todos?view=${nextView}`);
+      const data = (await res.json()) as ApiState & { error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to load tasks");
+      const decrypted = await decryptTodoRows(data.todos || []);
+      if (requestId !== loadRequestRef.current) return;
+      setTodos(decrypted);
+      setCanEdit(data.canEdit);
+      setMessage("");
+    } catch (error) {
+      if (requestId !== loadRequestRef.current) return;
+      throw error;
+    } finally {
+      if (requestId === loadRequestRef.current) setIsLoading(false);
+    }
   }
 
   useEffect(() => {
     loadTodos(view).catch((error) => setMessage(error.message));
   }, [view]);
+
+  useEffect(() => {
+    if (!completionIds.length) return;
+    document.documentElement.classList.add("has-open-dialog");
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setCompletionIds([]);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    window.setTimeout(() => modalCloseRef.current?.focus(), 0);
+    return () => {
+      document.documentElement.classList.remove("has-open-dialog");
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [completionIds.length]);
 
   async function addTodo() {
     const title = draft.trim();
@@ -209,7 +265,7 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
       return;
     }
     try {
-      await postForm("/api/todos/create", { title, due_on: draftDue });
+      await postForm("/api/todos/create", { title: await encryptPrivateTextValue(title), due_on: draftDue });
       setDraft("");
       await loadTodos();
     } catch (error) {
@@ -220,11 +276,12 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
   async function saveEdit(id: string) {
     const title = editingTitle.trim();
     if (!title) {
-      await deleteTodo(id);
+      setMessage("A task needs a title. The original task was kept.");
+      setEditingId(null);
       return;
     }
     try {
-      await postForm("/api/todos/update", { id, title });
+      await postForm("/api/todos/update", { id, title: await encryptPrivateTextValue(title) });
       setEditingId(null);
       await loadTodos();
     } catch (error) {
@@ -233,6 +290,11 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
   }
 
   async function deleteTodo(id: string) {
+    const confirmDelete = (window as any).CBConfirmDelete as undefined | ((message: string, options?: Record<string, string>) => Promise<boolean>);
+    const approved = confirmDelete
+      ? await confirmDelete("Delete this task? This cannot be undone.", { title: "Delete task?" })
+      : window.confirm("Delete this task? This cannot be undone.");
+    if (!approved) return;
     try {
       await postForm("/api/todos/delete", { id });
       await loadTodos();
@@ -261,17 +323,15 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
         setCompletionMessage("Use 24-hour time like 09:30 or 18:05.");
         return;
       }
-      if (normalizedRanges.some((range) => range.start_time === range.end_time)) {
-        setCompletionMessage("End time must be different from start time.");
-        return;
-      }
       for (const id of completionIds) {
+        const todo = todos.find((item) => item.id === id);
         await postForm("/api/todos/complete", {
           id,
           completed_on: completionDate,
           start_time: normalizedRanges[0].start_time,
           end_time: normalizedRanges[0].end_time,
           ranges: JSON.stringify(normalizedRanges),
+          activity_body: await encryptPrivateTextValue(todo?.title || "Completed task"),
         });
       }
       setCompletionIds([]);
@@ -294,6 +354,11 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
   }
 
   async function clearCompleted() {
+    const confirmDelete = (window as any).CBConfirmDelete as undefined | ((message: string, options?: Record<string, string>) => Promise<boolean>);
+    const approved = confirmDelete
+      ? await confirmDelete("Clear every completed task from this list?", { title: "Clear completed tasks?", confirmText: "Clear" })
+      : window.confirm("Clear every completed task from this list?");
+    if (!approved) return;
     try {
       await postForm("/api/todos/clear-completed", {});
       await loadTodos();
@@ -358,7 +423,7 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
               ))}
             </div>
             <button className="todo-date-pill" type="button" aria-label="Today">
-              <span>Monday, May 25</span>
+              <span>{todayLabel}</span>
             </button>
             <button className="todo-add-hero" type="button" onClick={() => inputRef.current?.focus()} disabled={!canEdit}>
               + Add a task
@@ -379,7 +444,7 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
             </div>
           </div>
 
-          {message && <p className="todo-message">{message}</p>}
+          {message && <p className="todo-message" role="alert">{message}</p>}
           {!canEdit && (
             <p className="todo-message">
               {profile ? `Current account can edit ${authorNames[currentAuthor || "white"]}'s list only.` : "Log in to add or edit tasks."}
@@ -422,8 +487,12 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
             <button type="button" onClick={clearCompleted} disabled={!canEdit || !listCompletedTodos.length}>Clear completed</button>
           </div>
 
-          <div className="todo-list">
-            {visibleTodos.map((todo) => {
+          <div className="todo-list" aria-busy={isLoading} aria-live="polite">
+            {isLoading ? (
+              <div className="todo-loading" aria-label="Loading tasks">
+                <span></span><span></span><span></span>
+              </div>
+            ) : visibleTodos.map((todo) => {
               const outcome = todoOutcome(todo, todayKey());
               return (
               <article
@@ -499,7 +568,7 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
               </article>
               );
             })}
-            {!visibleTodos.length && <p className="todo-empty">Nothing here yet. Tiny plans are welcome.</p>}
+            {!isLoading && !visibleTodos.length && <p className="todo-empty">Nothing here yet. Tiny plans are welcome.</p>}
           </div>
         </section>
 
@@ -561,10 +630,10 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
         <div className="todo-modal" role="dialog" aria-modal="true" aria-labelledby="todoCompleteTitle">
           <div className="todo-modal__mask" onClick={() => setCompletionIds([])}></div>
           <section className="todo-modal__card">
-            <button type="button" className="todo-modal__close" onClick={() => setCompletionIds([])} aria-label="Close">×</button>
+            <button ref={modalCloseRef} type="button" className="todo-modal__close" onClick={() => setCompletionIds([])} aria-label="Close">×</button>
             <p>Completion time</p>
             <h2 id="todoCompleteTitle">{completionTitle}</h2>
-            {completionMessage && <div className="todo-modal__message">{completionMessage}</div>}
+            {completionMessage && <div className="todo-modal__message" role="alert">{completionMessage}</div>}
             <label>
               <span>Date</span>
               <input type="date" value={completionDate} onChange={(event) => setCompletionDate(event.target.value)} />

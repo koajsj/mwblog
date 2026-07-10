@@ -13,6 +13,7 @@
   };
   var STATUS_KEY = "cuteblog.home.status.v1";
   var WEATHER_CACHE_MS = 30 * 60 * 1000;
+  var privateSpace = window.OurNestPrivate || null;
   var QUOTES = {
     white: ["Keep the little things carefully today.", "Take it slowly; the nest will grow bit by bit.", "If the breeze is right, stay in the sun a little longer."],
     brown: ["Write down the places first; the road will appear slowly.", "Today is good for one small cute thing.", "Before leaving, tuck the anticipation into your pocket."]
@@ -135,12 +136,14 @@
   }
 
   function postFieldToServer(field, value) {
-    if (!window.fetch) return;
+    if (!window.fetch || !privateSpace || !privateSpace.encryptText) return;
     try {
-      fetch("/api/status/field", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ field: field, value: value })
+      privateSpace.encryptText(value || "").then(function (encrypted) {
+        return fetch("/api/status/field", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ field: field, value: encrypted })
+        });
       }).catch(function () {});
     } catch (e) {}
   }
@@ -152,13 +155,14 @@
   }
 
   function postWeatherToServer(text, location) {
-    if (!window.fetch || !text) return;
-    var payload = { text: text };
+    if (!window.fetch || !text || !privateSpace || !privateSpace.encryptText) return;
     try {
-      fetch("/api/status/weather", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload)
+      privateSpace.encryptText(text).then(function (encrypted) {
+        return fetch("/api/status/weather", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: encrypted })
+        });
       }).catch(function () {});
     } catch (e) {}
   }
@@ -234,6 +238,30 @@
           weather.textContent = serverText || "Location pending · Weather pending";
         }
       }
+    });
+  }
+
+  function decryptHomeContent() {
+    if (!privateSpace || !privateSpace.ready) return Promise.resolve();
+    return privateSpace.ready().then(function () {
+      return Promise.all([
+        Promise.all(["whiteWeather", "brownWeather", "whiteMood", "brownMood", "whiteDoing", "brownDoing"].map(function (id) {
+          var el = document.getElementById(id);
+          if (!el) return Promise.resolve();
+          var attr = id.indexOf("Weather") >= 0 ? "data-server-weather" : "data-server-text";
+          var encrypted = el.getAttribute(attr) || "";
+          if (!encrypted) return Promise.resolve();
+          return privateSpace.decryptText(encrypted).then(function (value) {
+            el.setAttribute(attr, value || "");
+          });
+        })),
+        privateSpace.decryptTextNodes(document.getElementById("homeRecentPhotos")),
+        privateSpace.decryptTextNodes(document.getElementById("homeMemoryList")),
+        privateSpace.decryptTextNodes(document.getElementById("homeJournalList")),
+        privateSpace.decryptTextNodes(document.getElementById("homeRandomDeck")),
+        privateSpace.decryptTextNodes(document.getElementById("placeList")),
+        privateSpace.hydratePhotoNodes(document.getElementById("homeRecentPhotos"))
+      ]);
     });
   }
 
@@ -409,7 +437,11 @@
   }
 
   function setupWeather() {
-    renderStatus();
+    decryptHomeContent().then(function () {
+      renderStatus();
+    }).catch(function () {
+      renderStatus();
+    });
     return;
     var home = document.getElementById("home");
     var who = home && home.getAttribute("data-current-weather-who");
@@ -502,6 +534,7 @@
     var chips = document.getElementById("statusEditorChips");
     var clearBtn = document.getElementById("statusEditorClear");
     var saveBtn = document.getElementById("statusEditorSave");
+    var editorReturnFocus = null;
     var activeEdit = null;
 
     function statusName(who) {
@@ -547,8 +580,10 @@
       if (!modal || !input || !saveBtn) return;
       var target = fieldTarget(who, field);
       var name = statusName(who);
+      editorReturnFocus = document.activeElement;
       activeEdit = { who: who, field: field };
       modal.classList.remove("is-hidden", "status-editor--white", "status-editor--brown");
+      document.documentElement.classList.add("has-open-dialog");
       modal.classList.add(who === "brown" ? "status-editor--brown" : "status-editor--white");
       if (kicker) kicker.textContent = name + "'s today";
       if (title) title.textContent = field === "mood" ? "Edit mood" : "Edit what you are doing";
@@ -569,7 +604,9 @@
     function closeEditor() {
       if (!modal) return;
       modal.classList.add("is-hidden");
+      document.documentElement.classList.remove("has-open-dialog");
       activeEdit = null;
+      if (editorReturnFocus && typeof editorReturnFocus.focus === "function") editorReturnFocus.focus();
     }
 
     function saveEditor(value) {
@@ -690,9 +727,49 @@
     });
   }
 
+  function setupRandomMemory() {
+    var deck = document.getElementById("homeRandomDeck");
+    if (!deck) return;
+    var cards = Array.prototype.slice.call(deck.querySelectorAll("[data-memory-card]"));
+    var shuffle = document.getElementById("homeRandomShuffle");
+    if (!cards.length) {
+      if (shuffle) shuffle.hidden = true;
+      return;
+    }
+
+    function show(index) {
+      cards.forEach(function (card, cardIndex) {
+        var active = cardIndex === index;
+        card.classList.toggle("is-active", active);
+        card.setAttribute("aria-hidden", active ? "false" : "true");
+        card.setAttribute("tabindex", active ? "0" : "-1");
+      });
+    }
+
+    function nextIndex() {
+      if (cards.length === 1) return 0;
+      var activeIndex = cards.findIndex(function (card) { return card.classList.contains("is-active"); });
+      var picked = Math.floor(Math.random() * cards.length);
+      while (picked === activeIndex) {
+        picked = Math.floor(Math.random() * cards.length);
+      }
+      return picked;
+    }
+
+    show(Math.floor(Math.random() * cards.length));
+    if (shuffle && cards.length > 1) {
+      shuffle.addEventListener("click", function () {
+        show(nextIndex());
+      });
+    } else if (shuffle) {
+      shuffle.hidden = true;
+    }
+  }
+
   setPeriod(periodForHour(new Date().getHours()));
   renderStatus();
   setupWeather();
   setupStatusActions();
   setupPhotos();
+  setupRandomMemory();
 })();

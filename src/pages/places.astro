@@ -1,11 +1,10 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
-import { createServiceClient } from "../lib/supabase";
-import { decryptPrivateRows } from "../lib/private-data";
+import { createLocalsClient } from "../lib/supabase";
 import { authorDisplayName } from "../lib/author-display";
 import type { AuthorKey, Place, PlaceTone } from "../lib/types";
 
-const supabase = createServiceClient();
+const supabase = createLocalsClient(Astro.locals);
 const user = Astro.locals.user;
 
 const { data } = await supabase
@@ -13,7 +12,7 @@ const { data } = await supabase
   .select("id,owner_id,name,note,tone,created_at,updated_at,profiles(display_name,author_key)")
   .order("created_at", { ascending: false });
 
-const places = decryptPrivateRows((data || []) as Place[], ["name", "note"]);
+const places = (data || []) as Place[];
 
 const noticeError = Astro.url.searchParams.get("error");
 const created = Astro.url.searchParams.get("created");
@@ -40,9 +39,9 @@ const deleted = Astro.url.searchParams.get("deleted");
           <a class="places-toggle" href="/auth/login">Log in to add</a>
         )}
       </div>
-      {noticeError && <p style="margin-top:14px;color:#9d3f3f;background:rgba(255,242,242,.8);padding:10px 14px;border-radius:12px;display:inline-block;">{noticeError}</p>}
-      {created === "place" && <p style="margin-top:14px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Place saved.</p>}
-      {deleted === "place" && <p style="margin-top:14px;color:#3f6a4f;background:rgba(232,247,236,.85);padding:10px 14px;border-radius:12px;display:inline-block;">Place deleted.</p>}
+      {noticeError && <p class="site-notice site-notice--error" role="alert">{noticeError}</p>}
+      {created === "place" && <p class="site-notice" role="status">Place saved.</p>}
+      {deleted === "place" && <p class="site-notice" role="status">Place deleted.</p>}
     </section>
 
     {user && (
@@ -83,16 +82,16 @@ const deleted = Astro.url.searchParams.get("deleted");
               <span class={tone === "night" ? "place-card__moon" : "place-card__sun"}></span>
               <span class="place-card__land"></span>
             </div>
-            <div class="place-card__content">
-              <h3 class="place-card__name">{place.name}</h3>
-              <p class="place-card__note">{place.note}</p>
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:8px;">
-                <small style="color:#7a8aa0;font-size:12px;font-weight: 650;">Added by {authorDisplayName(place.profiles, author)}</small>
+              <div class="place-card__content">
+              <h3 class="place-card__name" data-private-text={place.name} data-private-fallback="Locked place"></h3>
+              <p class="place-card__note" data-private-text={place.note} data-private-fallback="Unlock to view the note."></p>
+              <div class="place-card__meta">
+                <small>Added by {authorDisplayName(place.profiles, author)}</small>
                 {isOwner && (
-                  <form action="/api/places/delete" method="post" data-confirm={`Delete "${place.name}"?`} data-confirm-title="Delete place?" style="display:inline;">
+                  <form action="/api/places/delete" method="post" data-confirm="Delete this place?" data-confirm-title="Delete place?">
                     <input type="hidden" name="return_to" value="/places" />
                     <input type="hidden" name="id" value={place.id} />
-                    <button type="submit" style="border:none;background:rgba(255,255,255,.6);padding:6px 11px;border-radius:999px;font-size:12px;font-weight: 650;color:#9d3f3f;cursor:pointer;">Delete</button>
+                    <button class="place-card__delete" type="submit">Delete</button>
                   </form>
                 )}
               </div>
@@ -100,7 +99,7 @@ const deleted = Astro.url.searchParams.get("deleted");
           </article>
         );
       }) : (
-        <article style="grid-column:1/-1;text-align:center;padding:60px 18px;color:#7a8aa0;">No places yet. Add the first one above.</article>
+        <article class="places-empty">No places yet. Add the first one above.</article>
       )}
     </section>
   </main>
@@ -126,6 +125,19 @@ const deleted = Astro.url.searchParams.get("deleted");
           });
         }
         if (cancel) cancel.addEventListener("click", function () { setOpen(false); });
+        if (window.OurNestPrivate && window.OurNestPrivate.decryptTextNodes) {
+          window.OurNestPrivate.ready().then(function () {
+            return window.OurNestPrivate.decryptTextNodes(document.getElementById("placeList"));
+          }).catch(function () {});
+        }
+        if (form && window.OurNestPrivate && window.OurNestPrivate.encryptFormFields) {
+          form.addEventListener("submit", function (event) {
+            event.preventDefault();
+            window.OurNestPrivate.encryptFormFields(form, ["name", "note"]).then(function () {
+              form.submit();
+            }).catch(function () {});
+          });
+        }
 
       })();
     </script>

@@ -1,12 +1,12 @@
 import type { APIRoute } from "astro";
-import { createServiceClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/supabase";
 import { json } from "../../../lib/todo-utils";
 
 export const POST: APIRoute = async ({ locals }) => {
   const user = locals.user;
   if (!user) return json({ error: "Please log in first." }, 401);
 
-  const supabase = createServiceClient();
+  const supabase = createLocalsClient(locals);
   const { data: todos, error: readError } = await supabase
     .from("todos")
     .select("id")

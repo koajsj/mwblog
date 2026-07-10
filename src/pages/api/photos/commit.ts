@@ -1,8 +1,7 @@
 import type { APIRoute } from "astro";
-import { createServiceClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/supabase";
 import { isAllowedImageType } from "../../../lib/files";
-import { encryptNullablePrivateText } from "../../../lib/private-data";
-import { isDateKey } from "../../../lib/datetime";
+import { readNullableEncryptedText } from "../../../lib/private-payload";
 import { removeStoragePaths, storageObjectExists } from "../../../lib/storage";
 
 function json(body: unknown, status = 200) {
@@ -20,8 +19,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const payload = await request.json().catch(() => null);
   const path = String(payload?.path || "").trim();
   const mimeType = String(payload?.mime_type || "").trim();
-  const title = String(payload?.title || "").trim();
-  const caption = String(payload?.caption || "").trim();
+  let title: string | null = null;
+  let caption: string | null = null;
+  try {
+    title = readNullableEncryptedText(payload?.title, { maxLength: 4096 });
+    caption = readNullableEncryptedText(payload?.caption, { maxLength: 4096 });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Invalid encrypted photo text." }, 400);
+  }
   const takenOn = String(payload?.taken_on || "").trim() || null;
 
   // 只允许写入自己目录下、且确实由本次会话上传的路径。
@@ -29,43 +34,27 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return json({ error: "Invalid upload path." }, 400);
   }
   if (mimeType && !isAllowedImageType(mimeType)) {
-    await removeStoragePaths("photos", [path]);
     return json({ error: "Only image files can be uploaded." }, 400);
   }
-  if (takenOn && !isDateKey(takenOn)) {
-    await removeStoragePaths("photos", [path]);
+  if (takenOn && !/^\d{4}-\d{2}-\d{2}$/.test(takenOn)) {
     return json({ error: "Please choose a valid date." }, 400);
   }
-  if (!(await storageObjectExists("photos", path))) {
+  const supabase = createLocalsClient(locals);
+  if (!(await storageObjectExists(supabase, "photos", path))) {
     return json({ error: "Uploaded photo was not found. Please choose it again." }, 400);
-  }
-
-  const supabase = createServiceClient();
-  const { data: existingPhoto, error: existingError } = await supabase
-    .from("photos")
-    .select("id")
-    .eq("storage_path", path)
-    .maybeSingle();
-
-  if (existingError) {
-    await removeStoragePaths("photos", [path]);
-    return json({ error: existingError.message }, 500);
-  }
-  if (existingPhoto) {
-    return json({ error: "This uploaded photo has already been saved." }, 400);
   }
 
   const { error: insertError } = await supabase.from("photos").insert({
     owner_id: user.id,
-    title: encryptNullablePrivateText(title),
-    caption: encryptNullablePrivateText(caption),
+    title,
+    caption,
     taken_on: takenOn,
     storage_path: path,
     mime_type: mimeType || null,
   });
 
   if (insertError) {
-    await removeStoragePaths("photos", [path]);
+    await removeStoragePaths(supabase, "photos", [path]);
     return json({ error: insertError.message }, 500);
   }
 

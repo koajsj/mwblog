@@ -39,3 +39,7 @@ export function createUserClient(accessToken: string) {
     },
   });
 }
+
+export function createLocalsClient(locals: App.Locals) {
+  return locals.accessToken ? createUserClient(locals.accessToken) : createAnonClient();
+}
