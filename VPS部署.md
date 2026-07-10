@@ -8,7 +8,7 @@
 curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-deploy.sh | sudo bash
 ```
 
-脚本会提示输入 Supabase URL、anon key、service role key，并自动生成 `APP_ENCRYPTION_KEY` 和 `BACKUP_ENCRYPTION_KEY`。如果已有 `/opt/mwblog/.env`，脚本会保留现有配置，只补缺失的加密密钥并做必需项校验。
+脚本会提示输入 Supabase URL、anon key、service role key，并自动生成 `APP_ENCRYPTION_KEY` 和 `BACKUP_ENCRYPTION_KEY`。如果已有 `/opt/mwblog/.env`，脚本会保留现有配置，只补缺失的加密密钥并做必需项校验。传入 `DOMAIN` 时会写入 `APP_ORIGIN`，让 Astro 仅信任该域名对应的 Nginx HTTPS 转发头。
 
 如果要绑定域名：
 
@@ -24,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-depl
 sudo /opt/mwblog/scripts/vps-update.sh
 ```
 
-更新脚本会先拉取代码、按 `package-lock.json` 执行 `npm ci`、完成构建，然后才重启 systemd 服务。构建失败时不会提前重启线上服务。
+更新脚本会先拉取代码、按 `package-lock.json` 执行 `npm ci`、完成构建，然后才重启 systemd 服务。构建或重启失败时会尝试恢复到更新前的提交并重新构建启动；启用数据迁移时，数据库和 Storage 的变更不能自动回滚。
 
 常用开关：
 
@@ -81,11 +81,13 @@ sudo tar -tzf /tmp/mwblog-backup.tar.gz | head
 017_private_space_closure.sql
 018_client_private_space_keys.sql
 019_enforce_client_ciphertext.sql
+020_lock_private_space_identities.sql
 ```
 
 `017_private_space_closure.sql` 会关闭公开注册并收口到固定私密空间。
 `018_client_private_space_keys.sql` 会创建客户端密钥包表。
 `019_enforce_client_ciphertext.sql` 会强制敏感字段写入客户端密文。
+`020_lock_private_space_identities.sql` 会锁定身份字段并禁止客户端覆盖已存在的密钥包。
 
 ## 恢复到新 Supabase
 

@@ -40,8 +40,8 @@ const deleted = Astro.url.searchParams.get("deleted");
         )}
       </div>
       {noticeError && <p class="site-notice site-notice--error" role="alert">{noticeError}</p>}
-      {created === "place" && <p class="site-notice" role="status">Place saved.</p>}
-      {deleted === "place" && <p class="site-notice" role="status">Place deleted.</p>}
+      {created === "place" && <p class="site-notice" role="status">A new place is waiting for the two of you.</p>}
+      {deleted === "place" && <p class="site-notice" role="status">The place has been removed from your shared list.</p>}
     </section>
 
     {user && (
@@ -88,7 +88,7 @@ const deleted = Astro.url.searchParams.get("deleted");
               <div class="place-card__meta">
                 <small>Added by {authorDisplayName(place.profiles, author)}</small>
                 {isOwner && (
-                  <form action="/api/places/delete" method="post" data-confirm="Delete this place?" data-confirm-title="Delete place?">
+                  <form action="/api/places/delete" method="post" data-confirm="Remove this place from your shared wish list?" data-confirm-title="Remove this place?">
                     <input type="hidden" name="return_to" value="/places" />
                     <input type="hidden" name="id" value={place.id} />
                     <button class="place-card__delete" type="submit">Delete</button>
@@ -99,7 +99,7 @@ const deleted = Astro.url.searchParams.get("deleted");
           </article>
         );
       }) : (
-        <article class="places-empty">No places yet. Add the first one above.</article>
+        <article class="places-empty">Choose one place you would both like to see someday.</article>
       )}
     </section>
   </main>

@@ -92,6 +92,16 @@ select,
   font-size: 13px;
   font-weight: 650;
   line-height: 1.55;
+  animation: siteNoticeIn 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.site-notice::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 4px;
+  min-height: 1.55em;
+  border-radius: 999px;
+  background: rgba(91, 151, 111, 0.52);
 }
 
 .site-notice--error {
@@ -99,6 +109,43 @@ select,
   color: #8b3f3f;
   background: rgba(255, 242, 242, 0.9);
   box-shadow: 0 8px 20px rgba(120, 68, 68, 0.08);
+}
+
+.site-notice--error::before {
+  background: rgba(157, 63, 63, 0.5);
+}
+
+@keyframes siteNoticeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+:where(.rec-empty, .places-empty, .post-empty, .pw-empty, .timeline-empty, .stat-empty, .todo-empty, .cmt-empty) {
+  padding: 24px 20px;
+  border: 1px dashed rgba(122, 145, 164, 0.24);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.46);
+  color: #718397;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.cmt-empty {
+  padding: 14px 16px;
+  text-align: left;
+}
+
+.timeline-empty {
+  display: block;
+}
+
+:where(.rec-empty, .places-empty, .post-empty, .pw-empty, .timeline-empty, .stat-empty, .todo-empty)::before {
+  content: "A quiet corner for two";
+  display: block;
+  margin-bottom: 5px;
+  color: #526d83;
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .site-notice--block {
@@ -109,12 +156,14 @@ select,
 [data-private-photo] {
   opacity: 0.42;
   filter: saturate(0.7);
+  background: linear-gradient(110deg, rgba(232, 240, 244, 0.72) 24%, rgba(255, 255, 255, 0.9) 38%, rgba(232, 240, 244, 0.72) 52%);
   transition: opacity 0.32s ease, filter 0.32s ease;
 }
 
 [data-private-photo][data-private-loaded="true"] {
   opacity: 1;
   filter: none;
+  background: transparent;
 }
 
 [data-private-photo][data-private-loaded="error"] {
@@ -137,6 +186,14 @@ select,
     touch-action: manipulation;
   }
 
+  :where(.rec-add-toggle, .places-toggle, .pw-upload-btn, .bi-upload-toggle, .rec-form__save, .place-form__save, .act-form button, .cmt-form__send) {
+    min-height: 44px;
+  }
+
+  :where(.rec-empty, .places-empty, .post-empty, .pw-empty, .timeline-empty, .stat-empty, .todo-empty, .cmt-empty) {
+    padding: 22px 16px;
+  }
+
   .site-notice {
     width: 100%;
     justify-content: center;
@@ -147,7 +204,12 @@ select,
 @media (prefers-reduced-motion: reduce) {
   :where(button, a),
   [data-private-photo] {
+    animation: none !important;
     transition: none !important;
+  }
+
+  .site-notice {
+    animation: none !important;
   }
 }
 

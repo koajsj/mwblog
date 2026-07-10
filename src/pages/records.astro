@@ -112,8 +112,8 @@ const deleted = Astro.url.searchParams.get("deleted");
         <a class="rec-add-toggle" href="/auth/login">Log in to add</a>
       )}
       {noticeError && <p class="site-notice site-notice--error" role="alert">{noticeError}</p>}
-      {created === "record" && <p class="site-notice" role="status">Record saved.</p>}
-      {deleted === "record" && <p class="site-notice" role="status">Record deleted.</p>}
+      {created === "record" && <p class="site-notice" role="status">Today’s memory has been tucked safely into your nest.</p>}
+      {deleted === "record" && <p class="site-notice" role="status">The record has been removed.</p>}
     </header>
 
     {canCreate && (
@@ -214,7 +214,7 @@ const deleted = Astro.url.searchParams.get("deleted");
                       </div>
                       <span class="note__hint">Click to expand ▾</span>
                       {user?.id === record.owner_id && (
-                        <form class="note-delete" action="/api/records/delete" method="post" data-confirm="Delete this record? This cannot be undone." data-confirm-title="Delete record?">
+                        <form class="note-delete" action="/api/records/delete" method="post" data-confirm="Remove this memory from your shared record? This cannot be undone." data-confirm-title="Remove this memory?">
                           <input type="hidden" name="id" value={record.id} />
                           <input type="hidden" name="return_to" value="/records" />
                           <button class="note-delete__btn" type="submit">Delete</button>
@@ -256,7 +256,7 @@ const deleted = Astro.url.searchParams.get("deleted");
                             <input type="hidden" name="target_type" value="record" />
                             <input type="hidden" name="target_id" value={record.id} />
                             <input type="hidden" name="return_to" value="/records" />
-                            <textarea name="body" maxlength="500" rows="1" placeholder="Leave a comment..." required></textarea>
+                            <textarea name="body" maxlength="500" rows="1" placeholder="Leave a little note for the other person..." required></textarea>
                             <button class="cmt-form__send" type="submit">Send</button>
                           </form>
                         ) : (
@@ -271,7 +271,7 @@ const deleted = Astro.url.searchParams.get("deleted");
           </section>
         );
       }) : (
-        <div class="rec-empty">No records yet. Add the first one above.</div>
+        <div class="rec-empty">One of you can leave the first small memory above.</div>
       )}
     </div>
   </main>

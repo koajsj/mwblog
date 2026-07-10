@@ -568,7 +568,7 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
               </article>
               );
             })}
-            {!isLoading && !visibleTodos.length && <p className="todo-empty">Nothing here yet. Tiny plans are welcome.</p>}
+            {!isLoading && !visibleTodos.length && <p className="todo-empty">Leave one small plan here, or wait for the other person to add one.</p>}
           </div>
         </section>
 

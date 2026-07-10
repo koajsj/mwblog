@@ -96,8 +96,8 @@ const deleted = Astro.url.searchParams.get("deleted");
         <h1 class="pw-title">📷 Photos</h1>
         <p class="pw-subtitle">Keeping everyday moments in pictures</p>
         {noticeError && <p class="site-notice site-notice--error" role="alert">{noticeError}</p>}
-        {uploaded === "photo" && <p class="site-notice" role="status">Photo uploaded.</p>}
-        {deleted === "photo" && <p class="site-notice" role="status">Photo deleted.</p>}
+        {uploaded === "photo" && <p class="site-notice" role="status">This moment is now part of your photo wall.</p>}
+        {deleted === "photo" && <p class="site-notice" role="status">The photo has been removed.</p>}
       </header>
       <div class="pw-toolbar">
         {user ? (

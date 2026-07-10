@@ -758,7 +758,7 @@ html, body {
   aspect-ratio: 251 / 182;
 }
 .dogs--morning .dog--white .dog__img {
-  background-image: url("/assets/早晨-白狗.webp");
+  background-image: url("/assets/小白首页形象.webp");
 }
 .dogs--morning .dog--brown {
   right: 21%; bottom: 13%;
@@ -766,7 +766,7 @@ html, body {
   aspect-ratio: 246 / 267;
 }
 .dogs--morning .dog--brown .dog__img {
-  background-image: url("/assets/早晨-棕狗.webp");
+  background-image: url("/assets/小棕首页形象.webp");
 }
 
 /* ---- 上午：白狗追、棕狗叼球跑 ---- */
@@ -776,7 +776,7 @@ html, body {
   aspect-ratio: 189 / 125;
 }
 .dogs--forenoon .dog--white .dog__img {
-  background-image: url("/assets/上午-白狗.webp");
+  background-image: url("/assets/小白首页形象.webp");
 }
 .dogs--forenoon .dog--brown {
   right: 23%; bottom: 26%;
@@ -784,7 +784,7 @@ html, body {
   aspect-ratio: 160 / 110;
 }
 .dogs--forenoon .dog--brown .dog__img {
-  background-image: url("/assets/上午-棕狗.webp");
+  background-image: url("/assets/小棕首页形象.webp");
 }
 
 /* ---- 中午：两只狗在野餐垫旁吃三明治 ---- */
@@ -794,7 +794,7 @@ html, body {
   aspect-ratio: 169 / 183;
 }
 .dogs--noon .dog--white .dog__img {
-  background-image: url("/assets/中午-白狗.webp");
+  background-image: url("/assets/小白首页形象.webp");
 }
 .dogs--noon .dog--brown {
   right: 32%; bottom: 17%;
@@ -802,7 +802,7 @@ html, body {
   aspect-ratio: 132 / 146;
 }
 .dogs--noon .dog--brown .dog__img {
-  background-image: url("/assets/中午-棕狗.webp");
+  background-image: url("/assets/小棕首页形象.webp");
 }
 
 /* ---- 下午：两只狗在草地上慵懒躺着 ---- */
@@ -812,7 +812,7 @@ html, body {
   aspect-ratio: 184 / 164;
 }
 .dogs--afternoon .dog--white .dog__img {
-  background-image: url("/assets/下午-白狗.webp");
+  background-image: url("/assets/小白首页形象.webp");
 }
 .dogs--afternoon .dog--brown {
   right: 21%; bottom: 14%;
@@ -820,7 +820,7 @@ html, body {
   aspect-ratio: 193 / 146;
 }
 .dogs--afternoon .dog--brown .dog__img {
-  background-image: url("/assets/下午-棕狗.webp");
+  background-image: url("/assets/小棕首页形象.webp");
 }
 
 /* ---- 傍晚：两只狗背对镜头依偎着看夕阳 ---- */
@@ -830,7 +830,7 @@ html, body {
   aspect-ratio: 136 / 144;
 }
 .dogs--dusk .dog--white .dog__img {
-  background-image: url("/assets/傍晚-白狗.webp");
+  background-image: url("/assets/小白首页形象.webp");
 }
 .dogs--dusk .dog--brown {
   left: 51%; bottom: 12.5%;
@@ -838,7 +838,7 @@ html, body {
   aspect-ratio: 86 / 102;
 }
 .dogs--dusk .dog--brown .dog__img {
-  background-image: url("/assets/傍晚-棕狗.webp");
+  background-image: url("/assets/小棕首页形象.webp");
 }
 
 /* ---- 晚上：白狗、棕狗围着背景里的篝火（篝火已画在背景图里）---- */
@@ -848,7 +848,7 @@ html, body {
   aspect-ratio: 102 / 114;
 }
 .dogs--evening .dog--white .dog__img {
-  background-image: url("/assets/晚上-白狗.webp");
+  background-image: url("/assets/小白首页形象.webp");
 }
 .dogs--evening .dog--brown {
   left: 49%; bottom: 15.5%;
@@ -856,7 +856,7 @@ html, body {
   aspect-ratio: 1 / 1;
 }
 .dogs--evening .dog--brown .dog__img {
-  background-image: url("/assets/晚上-棕狗.webp");
+  background-image: url("/assets/小棕首页形象.webp");
 }
 
 /* ============================================================
@@ -1020,7 +1020,15 @@ html, body {
 
 /* 尊重减少动态效果偏好 */
 @media (prefers-reduced-motion: reduce) {
-  .sun__rays, .cloud, .leaf, .star { animation: none !important; }
+  .sun__rays,
+  .cloud,
+  .leaf,
+  .star,
+  .dog,
+  .home-discovery__line::after,
+  .home-status__quote::after {
+    animation: none !important;
+  }
   .home-discovery,
   .home-discovery__line::after,
   .home-cover,
@@ -1094,7 +1102,7 @@ html, body {
 .home-bg__layer {
   position: absolute;
   inset: -34px;
-  background-image: var(--home-bg-url, url("/assets/下午草地.webp"));
+  background-image: var(--home-bg-url, url("/assets/首页封面.webp"));
   background-size: cover;
   background-position: center;
   filter: blur(18px) saturate(1.08);
@@ -1219,6 +1227,42 @@ html, body {
   letter-spacing: 0;
 }
 
+.home-presence {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 18px;
+  padding: 9px 15px;
+  border: 1px solid rgba(255,255,255,0.66);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.48);
+  color: #526b80;
+  box-shadow: 0 10px 28px rgba(68, 88, 112, 0.08);
+  -webkit-backdrop-filter: blur(16px);
+          backdrop-filter: blur(16px);
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 650;
+}
+
+.home-presence time {
+  color: #7b8fa2;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.home-presence time::before {
+  content: "";
+  display: inline-block;
+  width: 1px;
+  height: 1em;
+  margin-right: 16px;
+  background: rgba(93, 119, 141, 0.22);
+  vertical-align: -0.12em;
+}
+
 .home-duo-status {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1234,11 +1278,18 @@ html, body {
   min-height: 234px;
   padding: 20px;
   border: 1px solid rgba(255,255,255,0.6);
-  border-radius: 8px;
+  border-radius: 24px;
   background: rgba(255,255,255,0.52);
   box-shadow: 0 18px 42px rgba(68, 88, 112, 0.1);
   -webkit-backdrop-filter: blur(18px);
           backdrop-filter: blur(18px);
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+
+.home-status:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255,255,255,0.82);
+  box-shadow: 0 24px 54px rgba(68, 88, 112, 0.14);
 }
 
 .home-status--white {
@@ -1342,7 +1393,7 @@ html, body {
 .home-status__quote {
   margin-top: 13px;
   padding: 10px 13px;
-  border-radius: 8px;
+  border-radius: 14px;
   border-top: none;
   border-bottom: none;
   background: rgba(255,255,255,0.62);
@@ -1932,6 +1983,15 @@ html, body {
   transform: translateY(0) scale(1);
 }
 
+.home-random__deck.is-shuffling .home-random-card.is-active {
+  animation: homeMemoryIn 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes homeMemoryIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .home-random-card--white {
   border: 1px solid rgba(122, 166, 212, 0.24);
 }
@@ -2109,7 +2169,7 @@ html, body {
   aspect-ratio: 4 / 5;
   padding: 7px;
   border: 3px solid rgba(255,255,255,0.92);
-  border-radius: 5px;
+  border-radius: 12px;
   background: rgba(255,255,255,0.9);
   box-shadow: 0 16px 34px rgba(82, 103, 124, 0.12);
   cursor: pointer;
@@ -2128,7 +2188,7 @@ html, body {
   height: 100%;
   display: block;
   object-fit: cover;
-  border-radius: 2px;
+  border-radius: 8px;
   background: #eef4f6;
 }
 
@@ -2140,7 +2200,7 @@ html, body {
   display: grid;
   gap: 2px;
   padding: 8px 9px;
-  border-radius: 4px;
+  border-radius: 10px;
   background: rgba(255,255,255,0.76);
   color: #50677c;
   font-size: 11px;
@@ -2190,12 +2250,40 @@ html, body {
   width: 100%;
   padding: 32px 20px;
   border: 1px solid rgba(255,255,255,0.62);
-  border-radius: 8px;
+  border-radius: 20px;
   background: rgba(255,255,255,0.48);
   color: #60758a;
   font-size: 14px;
   font-weight: 600;
   text-align: center;
+}
+
+.home-feedback {
+  position: fixed;
+  left: 50%;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  z-index: 130;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 11px 16px;
+  border: 1px solid rgba(255,255,255,0.72);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.9);
+  color: #486278;
+  box-shadow: 0 16px 40px rgba(68, 88, 112, 0.18);
+  -webkit-backdrop-filter: blur(18px);
+          backdrop-filter: blur(18px);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 12px);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.home-feedback.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .home-places__body {
@@ -2551,6 +2639,23 @@ html, body {
     font-size: 40px;
   }
 
+  .home-presence {
+    width: 100%;
+    gap: 5px;
+    padding: 10px 12px;
+    border-radius: 18px;
+  }
+
+  .home-presence span,
+  .home-presence time {
+    width: 100%;
+    text-align: center;
+  }
+
+  .home-presence time::before {
+    display: none;
+  }
+
   .home-duo-status {
     grid-template-columns: 1fr;
     gap: 16px;
@@ -2615,6 +2720,10 @@ html, body {
     margin-top: 9px;
     padding: 8px 10px;
     font-size: 12px;
+  }
+
+  .home-status:hover {
+    transform: none;
   }
 
   .status-editor {
@@ -2783,5 +2892,15 @@ html, body {
   .place-card {
     width: min(100%, 250px);
     min-height: 238px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-status,
+  .home-feedback,
+  .home-random-card,
+  .home-photo-card {
+    animation: none !important;
+    transition: none !important;
   }
 }

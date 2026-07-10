@@ -69,7 +69,7 @@ const currentYear = posts.length ? postYear(posts[0]) : new Date().getFullYear()
       </div>
 
       {noticeError && <p class="site-notice site-notice--error site-notice--block" role="alert">{noticeError}</p>}
-      {deleted === "post" && <p class="site-notice site-notice--block" role="status">Post deleted.</p>}
+      {deleted === "post" && <p class="site-notice site-notice--block" role="status">The diary entry has been removed.</p>}
 
       {user && (
         <form class="bi-upload is-hidden" id="blogUploadPanel" action="/api/blog/upload" method="post" enctype="multipart/form-data">
@@ -128,14 +128,14 @@ const currentYear = posts.length ? postYear(posts[0]) : new Date().getFullYear()
           );
         }) : (
           <article class="post-empty">
-            No posts yet. {user ? "Use “Upload Markdown” above to publish the first one." : (
+            Your shared diary is waiting for its first entry. {user ? "Use “Upload Markdown” above when one of you is ready to write." : (
               <a href="/auth/login" style="color:#d49356;font-weight: 650;">Log in to publish Markdown →</a>
             )}
           </article>
         )}
       </div>
 
-      <p class="post-empty is-hidden" id="postEmpty">No posts match this filter yet.</p>
+      <p class="post-empty is-hidden" id="postEmpty">Nothing from this side of the nest matches the filter yet.</p>
 
       <nav class="bi-pager" aria-label="Blog pagination">
         <button class="bi-pager__btn is-disabled" type="button" disabled>Previous</button>

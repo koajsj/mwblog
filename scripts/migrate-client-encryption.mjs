@@ -96,10 +96,18 @@ function decryptLegacyFile(buffer, key) {
   };
 }
 
-async function deriveWrappingKey(secret, salt) {
+function bundleIterations(bundle) {
+  const iterations = Number(bundle?.kdf?.iterations);
+  if (!Number.isInteger(iterations) || iterations < 200000 || iterations > 1000000) {
+    throw new Error("Invalid private-space PBKDF2 iteration count.");
+  }
+  return iterations;
+}
+
+async function deriveWrappingKey(secret, salt, iterations) {
   const baseKey = await subtle.importKey("raw", encoder.encode(secret), "PBKDF2", false, ["deriveKey"]);
   return subtle.deriveKey(
-    { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
     baseKey,
     { name: "AES-GCM", length: 256 },
     false,
@@ -110,7 +118,7 @@ async function deriveWrappingKey(secret, salt) {
 async function unwrapSpaceKey(bundle) {
   const envelope = recoveryCode ? bundle.recovery : bundle.passphrase;
   const secret = recoveryCode || passphrase;
-  const wrappingKey = await deriveWrappingKey(secret, b64urlDecode(envelope.salt));
+  const wrappingKey = await deriveWrappingKey(secret, b64urlDecode(envelope.salt), bundleIterations(bundle));
   const rawKey = await subtle.decrypt(
     { name: "AES-GCM", iv: b64urlDecode(envelope.iv) },
     wrappingKey,

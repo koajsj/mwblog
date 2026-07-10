@@ -24,8 +24,8 @@
       '<section class="confirm-delete__card" tabindex="-1">' +
         '<button class="confirm-delete__x" type="button" aria-label="Close" data-confirm-close>x</button>' +
         '<span class="confirm-delete__icon" aria-hidden="true">!</span>' +
-        '<h2 class="confirm-delete__title" id="confirmDeleteTitle">Confirm deletion</h2>' +
-        '<p class="confirm-delete__message" id="confirmDeleteMessage">This item will be deleted.</p>' +
+        '<h2 class="confirm-delete__title" id="confirmDeleteTitle">Remove this item?</h2>' +
+        '<p class="confirm-delete__message" id="confirmDeleteMessage">Please check once more before removing it from your shared space.</p>' +
         '<div class="confirm-delete__actions">' +
           '<button class="confirm-delete__cancel" type="button" data-confirm-close>Cancel</button>' +
           '<button class="confirm-delete__confirm" type="button">Delete</button>' +
@@ -68,8 +68,8 @@
   function open(options) {
     ensureModal();
     previousFocus = document.activeElement;
-    titleEl.textContent = options.title || "Confirm deletion";
-    messageEl.textContent = options.message || "This item will be deleted.";
+    titleEl.textContent = options.title || "Remove this item?";
+    messageEl.textContent = options.message || "Please check once more before removing it from your shared space.";
     confirmBtn.textContent = options.confirmText || "Delete";
     modal.classList.remove("is-hidden");
     document.documentElement.classList.add("has-confirm-delete");
@@ -106,7 +106,7 @@
     return new Promise(function (resolve) {
       resolver = resolve;
       open({
-        title: options.title || "Confirm deletion",
+        title: options.title || "Remove this item?",
         message: message,
         confirmText: options.confirmText || "Delete",
       });
@@ -124,8 +124,8 @@
     ev.stopImmediatePropagation();
     activeForm = form;
     open({
-      title: form.getAttribute("data-confirm-title") || "Confirm deletion",
-      message: form.getAttribute("data-confirm") || "This item will be deleted.",
+      title: form.getAttribute("data-confirm-title") || "Remove this item?",
+      message: form.getAttribute("data-confirm") || "Please check once more before removing it from your shared space.",
       confirmText: form.getAttribute("data-confirm-action") || "Delete",
     });
   }, true);

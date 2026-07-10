@@ -3,13 +3,13 @@
   "use strict";
 
   var BG = {
-    morning: "/assets/早晨草地.webp",
-    forenoon: "/assets/上午草地.webp",
-    noon: "/assets/中午草地.webp",
-    afternoon: "/assets/下午草地.webp",
-    dusk: "/assets/傍晚草地.webp",
-    evening: "/assets/晚上草地.webp",
-    midnight: "/assets/半夜草地.webp"
+    morning: "/assets/首页封面.webp",
+    forenoon: "/assets/首页封面.webp",
+    noon: "/assets/首页封面.webp",
+    afternoon: "/assets/首页封面.webp",
+    dusk: "/assets/首页封面.webp",
+    evening: "/assets/首页封面.webp",
+    midnight: "/assets/首页封面.webp"
   };
   var STATUS_KEY = "cuteblog.home.status.v1";
   var WEATHER_CACHE_MS = 30 * 60 * 1000;
@@ -53,6 +53,7 @@
     99: "Heavy thunderstorm with hail"
   };
   var quoteTimers = {};
+  var clockTimer = null;
 
   function periodForHour(h) {
     if (h >= 5 && h < 8) return "morning";
@@ -67,6 +68,51 @@
   function setPeriod(key) {
     var bg = document.getElementById("homeBg");
     if (bg && BG[key]) bg.style.setProperty("--home-bg-url", 'url("' + BG[key] + '")');
+  }
+
+  function greetingForHour(hour) {
+    if (hour >= 5 && hour < 11) return "Good morning. A new day for the two of you.";
+    if (hour >= 11 && hour < 14) return "Take a little break and remember each other.";
+    if (hour >= 14 && hour < 18) return "The afternoon is softer when it is shared.";
+    if (hour >= 18 && hour < 23) return "You both did well today. Welcome home.";
+    return "It is late. Keep each other company and rest soon.";
+  }
+
+  function renderClock() {
+    var greeting = document.getElementById("homeGreeting");
+    var clock = document.getElementById("homeClock");
+    var now = new Date();
+    if (greeting) greeting.textContent = greetingForHour(now.getHours());
+    if (clock) {
+      clock.dateTime = now.toISOString();
+      clock.textContent = new Intl.DateTimeFormat("zh-CN", {
+        month: "long",
+        day: "numeric",
+        weekday: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).format(now);
+    }
+  }
+
+  function setupClock() {
+    renderClock();
+    if (clockTimer) window.clearInterval(clockTimer);
+    clockTimer = window.setInterval(renderClock, 60000);
+  }
+
+  function showFeedback(message) {
+    var feedback = document.getElementById("homeFeedback");
+    if (!feedback) return;
+    feedback.textContent = message;
+    feedback.classList.remove("is-visible");
+    window.requestAnimationFrame(function () {
+      feedback.classList.add("is-visible");
+    });
+    window.setTimeout(function () {
+      feedback.classList.remove("is-visible");
+    }, 2200);
   }
 
   function readJson(key, fallback) {
@@ -498,6 +544,11 @@
     if (!el) return;
     if (quoteTimers[id]) window.clearInterval(quoteTimers[id]);
     el.setAttribute("data-full-text", text);
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      el.textContent = text;
+      quoteTimers[id] = null;
+      return;
+    }
     var i = 0;
     el.textContent = "";
     quoteTimers[id] = window.setInterval(function () {
@@ -619,6 +670,7 @@
       renderStatus();
       setSync(trimmed ? "Saved" : "Default restored", "saved");
       closeEditor();
+      showFeedback(trimmed ? "Today’s note is saved in your little nest." : "The gentle default is back for today.");
     }
 
     if (input) {
@@ -744,6 +796,10 @@
         card.setAttribute("aria-hidden", active ? "false" : "true");
         card.setAttribute("tabindex", active ? "0" : "-1");
       });
+      deck.classList.remove("is-shuffling");
+      window.requestAnimationFrame(function () {
+        deck.classList.add("is-shuffling");
+      });
     }
 
     function nextIndex() {
@@ -767,6 +823,7 @@
   }
 
   setPeriod(periodForHour(new Date().getHours()));
+  setupClock();
   renderStatus();
   setupWeather();
   setupStatusActions();

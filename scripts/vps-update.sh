@@ -4,6 +4,10 @@ set -Eeuo pipefail
 APP_NAME="${APP_NAME:-mwblog}"
 APP_DIR="${APP_DIR:-/opt/${APP_NAME}}"
 BRANCH="${BRANCH:-main}"
+PORT="${PORT:-4321}"
+APP_USER="${APP_USER:-${APP_NAME}}"
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/${APP_NAME}}"
+DOMAIN="${DOMAIN:-}"
 RUN_SETUP_USERS="${RUN_SETUP_USERS:-0}"
 RUN_LEGACY_ENCRYPTION="${RUN_LEGACY_ENCRYPTION:-0}"
 RUN_CLIENT_MIGRATION="${RUN_CLIENT_MIGRATION:-0}"
@@ -34,8 +38,36 @@ ensure_env_line() {
   fi
   umask 077
   printf "\n%s=%s\n" "$name" "$value" >> "$APP_DIR/.env"
-  chmod 600 "$APP_DIR/.env"
+  $SUDO chown root:"$APP_USER" "$APP_DIR/.env"
+  $SUDO chmod 640 "$APP_DIR/.env"
   echo "Added ${name} to $APP_DIR/.env."
+}
+
+ensure_app_origin() {
+  if env_has_value "APP_ORIGIN"; then
+    return
+  fi
+
+  local origin="${APP_ORIGIN:-}"
+  if [ -z "$origin" ] && [ -n "$DOMAIN" ]; then
+    origin="https://${DOMAIN}"
+  fi
+  if [ -z "$origin" ]; then
+    local nginx_site="/etc/nginx/sites-available/${APP_NAME}"
+    local configured_domain
+    configured_domain="$($SUDO awk '/^[[:space:]]*server_name[[:space:]]+/ {gsub(/;/, "", $2); print $2; exit}' "$nginx_site" 2>/dev/null || true)"
+    if [ -n "$configured_domain" ] && [ "$configured_domain" != "_" ]; then
+      if $SUDO grep -q "ssl_certificate" "$nginx_site" 2>/dev/null; then
+        origin="https://${configured_domain}"
+      else
+        origin="http://${configured_domain}"
+      fi
+    fi
+  fi
+
+  if [ -n "$origin" ]; then
+    ensure_env_line "APP_ORIGIN" "$origin"
+  fi
 }
 
 validate_env_file() {
@@ -74,12 +106,59 @@ ensure_clean_checkout() {
   fi
 }
 
+ensure_app_user() {
+  if ! id -u "$APP_USER" >/dev/null 2>&1; then
+    echo "Missing service account ${APP_USER}. Run scripts/vps-deploy.sh first." >&2
+    exit 1
+  fi
+
+  $SUDO install -d -o "$APP_USER" -g "$APP_USER" -m 0700 "$BACKUP_DIR"
+}
+
 install_dependencies() {
   if [ -f package-lock.json ]; then
     npm ci
   else
     npm install
   fi
+}
+
+install_systemd_service() {
+  local node_path
+  node_path="$(command -v node)"
+
+  $SUDO tee "/etc/systemd/system/${APP_NAME}.service" >/dev/null <<EOF
+[Unit]
+Description=${APP_NAME} Astro app
+After=network.target
+
+[Service]
+Type=simple
+User=${APP_USER}
+Group=${APP_USER}
+UMask=0077
+WorkingDirectory=${APP_DIR}
+EnvironmentFile=${APP_DIR}/.env
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=${PORT}
+Environment=TMPDIR=/run/${APP_NAME}
+ExecStart=${node_path} ${APP_DIR}/dist/server/entry.mjs
+Restart=always
+RestartSec=5
+RuntimeDirectory=${APP_NAME}
+RuntimeDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=full
+ReadOnlyPaths=${APP_DIR}
+ReadWritePaths=/run/${APP_NAME} /tmp /var/tmp
+
+[Install]
+WantedBy=multi-user.target
+EOF
 }
 
 install_backup_timer() {
@@ -90,9 +169,19 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+User=${APP_USER}
+Group=${APP_USER}
+UMask=0077
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_DIR}/.env
+Environment=BACKUP_DIR=${BACKUP_DIR}
 ExecStart=/usr/bin/env bash ${APP_DIR}/scripts/vps-backup.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadOnlyPaths=${APP_DIR}
+ReadWritePaths=${BACKUP_DIR} /tmp /var/tmp
 EOF
 
   $SUDO tee "/etc/systemd/system/${APP_NAME}-backup.timer" >/dev/null <<EOF
@@ -111,6 +200,22 @@ EOF
   $SUDO systemctl enable --now "${APP_NAME}-backup.timer"
 }
 
+PREVIOUS_REV=""
+ROLLBACK_ACTIVE=0
+
+rollback() {
+  local status="$?"
+  trap - ERR
+  if [ "$ROLLBACK_ACTIVE" = "1" ] && [ -n "$PREVIOUS_REV" ]; then
+    echo "Update failed. Restoring ${PREVIOUS_REV:0:7}." >&2
+    git checkout "$PREVIOUS_REV" >&2 || true
+    install_dependencies >&2 || true
+    npm run build >&2 || true
+    $SUDO systemctl restart "$APP_NAME" >&2 || true
+  fi
+  exit "$status"
+}
+
 if [ ! -d "$APP_DIR/.git" ]; then
   echo "App directory is not a git checkout: $APP_DIR" >&2
   exit 1
@@ -124,10 +229,14 @@ if [ ! -f "$APP_DIR/.env" ]; then
 fi
 ensure_env_line "APP_ENCRYPTION_KEY" "$(generate_encryption_key)"
 ensure_env_line "BACKUP_ENCRYPTION_KEY" "$(generate_encryption_key)"
+ensure_app_origin
+ensure_app_user
 validate_env_file
 
 ensure_clean_checkout
-PREVIOUS_REV="$(git rev-parse --short HEAD)"
+PREVIOUS_REV="$(git rev-parse HEAD)"
+ROLLBACK_ACTIVE=1
+trap rollback ERR
 
 log "Updating ${BRANCH}"
 git fetch origin "$BRANCH"
@@ -155,10 +264,15 @@ fi
 npm run build
 
 log "Restarting service"
+install_systemd_service
+$SUDO systemctl daemon-reload
 $SUDO systemctl restart "$APP_NAME"
+$SUDO systemctl is-active --quiet "$APP_NAME"
 install_backup_timer
+ROLLBACK_ACTIVE=0
+trap - ERR
 echo "Update complete."
-echo "Previous revision: ${PREVIOUS_REV}"
+echo "Previous revision: ${PREVIOUS_REV:0:7}"
 echo "Current revision: $(git rev-parse --short HEAD)"
 echo "Service: systemctl status ${APP_NAME}"
 echo "Backup timer: systemctl status ${APP_NAME}-backup.timer"

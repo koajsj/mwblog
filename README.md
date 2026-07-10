@@ -210,6 +210,8 @@ APP_DIR=/opt/mwblog
 REPO_URL=https://github.com/koajsj/mwblog.git
 BRANCH=main
 PORT=4321
+APP_USER=mwblog
+APP_ORIGIN=https://example.com
 ENABLE_SSL=1
 CERTBOT_EMAIL=admin@example.com
 RUN_SETUP_USERS=1
@@ -223,9 +225,9 @@ RUN_CLIENT_MIGRATION=0
 sh scripts/vps-update.sh
 ```
 
-部署脚本会安装 Node.js 22、拉取代码、校验 `.env`、按 `package-lock.json` 安装依赖、初始化 `mm/ww` 两个账号、构建 Astro、创建 systemd 服务，并在设置 `DOMAIN` 时配置 Nginx 反代。Nginx 上传体积限制为 60MB，应用照片上传限制为 50MB。
+部署脚本会安装 Node.js 22、拉取代码、校验 `.env`、按 `package-lock.json` 安装依赖、初始化 `mm/ww` 两个账号、构建 Astro，并以受限的 `APP_USER` systemd 账号运行服务。`.env` 会以 `root:APP_USER`、`0640` 保存，仅供应用与备份服务读取。`APP_ORIGIN` 用于信任 Nginx 转发的 HTTPS 协议并保证 CSRF 同源校验正常；部署或更新脚本会按域名自动补齐。设置 `ENABLE_SSL=1` 时必须提供域名，Certbot 或证书签发失败会中止部署并禁用该站点的 Nginx 配置，避免 HTTP 降级。Nginx 上传体积限制为 60MB，应用照片上传限制为 50MB。
 
-更新脚本会先完成拉取、依赖安装和构建，成功后才重启 systemd 服务。旧的服务端加密迁移默认不会自动执行；只有旧数据还处在 `enc:v1` / `MWBLOG_FILE_V1` 阶段时，才临时设置 `RUN_LEGACY_ENCRYPTION=1`。客户端加密迁移需要解锁私密空间密钥，默认也不会自动执行，可在准备好 `SPACE_PASSPHRASE` 或 `SPACE_RECOVERY_CODE` 后设置 `RUN_CLIENT_MIGRATION=1` 或手动运行 `npm run migrate:client-encryption`。
+更新脚本会先完成拉取、依赖安装和构建，成功后才重启 systemd 服务。构建或重启失败时会尝试回到更新前的提交并重新构建启动；数据迁移始终需要单独确认，数据库和 Storage 变更不会自动回滚。旧的服务端加密迁移默认不会自动执行；只有旧数据还处在 `enc:v1` / `MWBLOG_FILE_V1` 阶段时，才临时设置 `RUN_LEGACY_ENCRYPTION=1`。客户端加密迁移需要解锁私密空间密钥，默认也不会自动执行，可在准备好 `SPACE_PASSPHRASE` 或 `SPACE_RECOVERY_CODE` 后设置 `RUN_CLIENT_MIGRATION=1` 或手动运行 `npm run migrate:client-encryption`。
 
 默认访问：
 
@@ -249,6 +251,7 @@ npm run build
 001_initial_schema.sql
 ...
 019_enforce_client_ciphertext.sql
+020_lock_private_space_identities.sql
 ```
 
 其中：
@@ -256,6 +259,7 @@ npm run build
 - `017_private_space_closure.sql` 负责关闭公开注册、固定双账号白名单和私密空间约束。
 - `018_client_private_space_keys.sql` 负责存放浏览器端生成的私密空间密钥包。
 - `019_enforce_client_ciphertext.sql` 负责强制敏感字段只能写入客户端密文。
+- `020_lock_private_space_identities.sql` 锁定 profile 身份字段，并禁止覆盖已创建的私密空间密钥包。
 
 以后如果新增表或字段，请继续在 `supabase/migrations/` 下增加新的 SQL 文件，并按顺序执行。
 

@@ -98,7 +98,15 @@
     return String(value || "").trim();
   }
 
-  function deriveWrappingKey(secret, salt) {
+  function bundleIterations(bundle) {
+    var iterations = Number(bundle && bundle.kdf && bundle.kdf.iterations);
+    if (!Number.isInteger(iterations) || iterations < 200000 || iterations > 1000000) {
+      throw new Error("The private-space key settings are invalid.");
+    }
+    return iterations;
+  }
+
+  function deriveWrappingKey(secret, salt, iterations) {
     return crypto.subtle.importKey(
       "raw",
       textEncoder.encode(secret),
@@ -110,7 +118,7 @@
         {
           name: "PBKDF2",
           salt: salt,
-          iterations: PBKDF2_ITERATIONS,
+          iterations: iterations,
           hash: "SHA-256",
         },
         baseKey,
@@ -128,7 +136,7 @@
   function wrapRawKey(rawKey, secret) {
     var salt = randomBytes(16);
     var iv = randomBytes(12);
-    return deriveWrappingKey(secret, salt).then(function (wrappingKey) {
+    return deriveWrappingKey(secret, salt, PBKDF2_ITERATIONS).then(function (wrappingKey) {
       return crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, wrappingKey, rawKey).then(function (ciphertext) {
         return {
           salt: b64urlEncode(salt),
@@ -139,8 +147,8 @@
     });
   }
 
-  function unwrapRawKey(envelope, secret) {
-    return deriveWrappingKey(secret, b64urlDecode(envelope.salt)).then(function (wrappingKey) {
+  function unwrapRawKey(bundle, envelope, secret) {
+    return deriveWrappingKey(secret, b64urlDecode(envelope.salt), bundleIterations(bundle)).then(function (wrappingKey) {
       return crypto.subtle.decrypt(
         { name: "AES-GCM", iv: b64urlDecode(envelope.iv) },
         wrappingKey,
@@ -184,6 +192,9 @@
     }).then(function (response) {
       return response.json().catch(function () { return {}; }).then(function (data) {
         if (!response.ok) {
+          if (response.status === 409) {
+            throw new Error("A private-space key already exists. Reload the page and unlock that space instead.");
+          }
           throw new Error(data.error || "Could not save the private-space key bundle.");
         }
         bundleCache = data.bundle || bundle;
@@ -327,7 +338,16 @@
     if (gate) gate.classList.add("is-hidden");
   }
 
+  function clearPrivateState() {
+    clearStoredRawKey();
+    bundleCache = null;
+    keyPromise = null;
+    photoCache.clear();
+    document.documentElement.removeAttribute("data-private-ready");
+  }
+
   function logoutNow() {
+    clearPrivateState();
     return fetch("/api/auth/logout", {
       method: "POST",
       credentials: "same-origin",
@@ -440,7 +460,7 @@
         }
         view.primary.disabled = true;
         view.secondary.disabled = true;
-        unwrapRawKey(bundle.recovery, code).then(function (rawKey) {
+        unwrapRawKey(bundle, bundle.recovery, code).then(function (rawKey) {
           return fingerprint(rawKey).then(function (fp) {
             if (fp !== String(bundle.fingerprint || "")) {
               throw new Error("The recovery code did not unlock this space.");
@@ -476,7 +496,7 @@
         }
         view.primary.disabled = true;
         view.secondary.disabled = true;
-        unwrapRawKey(bundle.passphrase, passphrase).then(function (rawKey) {
+        unwrapRawKey(bundle, bundle.passphrase, passphrase).then(function (rawKey) {
           return fingerprint(rawKey).then(function (fp) {
             if (fp !== String(bundle.fingerprint || "")) {
               throw new Error("wrong key");
@@ -731,9 +751,14 @@
     encryptFormFields: encryptFormFields,
     isEncryptedText: function (value) { return String(value || "").indexOf(TEXT_PREFIX) === 0; },
     isLegacyEncryptedText: function (value) { return String(value || "").indexOf(LEGACY_TEXT_PREFIX) === 0; },
-    clearCachedKey: clearStoredRawKey,
+    clearCachedKey: clearPrivateState,
     events: { ready: READY_EVENT, failed: FAILED_EVENT },
   };
+
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (form && form.matches && form.matches('form[action="/api/auth/logout"]')) clearPrivateState();
+  }, true);
 
   ensureReady().then(function () {
     markReady(bundleCache);

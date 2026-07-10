@@ -274,6 +274,6 @@
 
   runDiscoveryIntro(function () {
     resize();
-    tick();
+    if (!reducedMotion()) tick();
   });
 })();

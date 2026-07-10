@@ -27,6 +27,7 @@ function isBundle(value: unknown) {
     && kdf.hash === "SHA-256"
     && Number.isInteger(kdf.iterations)
     && Number(kdf.iterations) >= 200000
+    && Number(kdf.iterations) <= 1000000
     && isEnvelope(value.passphrase)
     && isEnvelope(value.recovery)
     && typeof value.fingerprint === "string"
@@ -58,6 +59,15 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   const supabase = createLocalsClient(locals);
+  const { data: existing, error: existingError } = await supabase
+    .from("private_space_keys")
+    .select("space_id")
+    .eq("space_id", PRIVATE_SPACE_ID)
+    .maybeSingle();
+
+  if (existingError) return json({ error: existingError.message }, 500);
+  if (existing) return json({ error: "The private-space key has already been created." }, 409);
+
   const row = {
     space_id: PRIVATE_SPACE_ID,
     bundle,
@@ -68,10 +78,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const { data, error } = await supabase
     .from("private_space_keys")
-    .upsert(row, { onConflict: "space_id" })
+    .insert(row)
     .select("bundle")
     .single();
 
-  if (error) return json({ error: error.message }, 500);
+  if (error) {
+    if (error.code === "23505") return json({ error: "The private-space key has already been created." }, 409);
+    return json({ error: error.message }, 500);
+  }
   return json({ ok: true, bundle: data?.bundle || bundle });
 };

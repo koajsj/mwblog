@@ -8,6 +8,8 @@ BRANCH="${BRANCH:-main}"
 PORT="${PORT:-4321}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
 DOMAIN="${DOMAIN:-}"
+APP_USER="${APP_USER:-${APP_NAME}}"
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/${APP_NAME}}"
 RUN_SETUP_USERS="${RUN_SETUP_USERS:-1}"
 ENABLE_SSL="${ENABLE_SSL:-0}"
 RUN_LEGACY_ENCRYPTION="${RUN_LEGACY_ENCRYPTION:-0}"
@@ -65,6 +67,18 @@ ensure_env_line() {
   printf "\n%s=%s\n" "$name" "$value" >> "$APP_DIR/.env"
 }
 
+ensure_app_origin() {
+  if [ -z "$DOMAIN" ]; then
+    return
+  fi
+
+  local scheme="http"
+  if [ "$ENABLE_SSL" = "1" ]; then
+    scheme="https"
+  fi
+  ensure_env_line "APP_ORIGIN" "${APP_ORIGIN:-${scheme}://${DOMAIN}}"
+}
+
 validate_env_file() {
   local missing=0
   local required=(
@@ -91,7 +105,17 @@ validate_env_file() {
     exit 1
   fi
 
-  chmod 600 "$APP_DIR/.env"
+  $SUDO chown root:"$APP_USER" "$APP_DIR/.env"
+  $SUDO chmod 640 "$APP_DIR/.env"
+}
+
+ensure_app_user() {
+  if ! id -u "$APP_USER" >/dev/null 2>&1; then
+    log "Creating restricted service account ${APP_USER}"
+    $SUDO useradd --system --user-group --no-create-home --shell /usr/sbin/nologin "$APP_USER"
+  fi
+
+  $SUDO install -d -o "$APP_USER" -g "$APP_USER" -m 0700 "$BACKUP_DIR"
 }
 
 install_system_packages() {
@@ -137,6 +161,7 @@ write_env_file() {
     echo "Keeping existing $APP_DIR/.env"
     ensure_env_line "APP_ENCRYPTION_KEY" "$(generate_encryption_key)"
     ensure_env_line "BACKUP_ENCRYPTION_KEY" "$(generate_encryption_key)"
+    ensure_app_origin
     validate_env_file
     return
   fi
@@ -155,6 +180,7 @@ SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
 APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY}
 BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY}
 EOF
+  ensure_app_origin
   validate_env_file
 }
 
@@ -201,18 +227,27 @@ After=network.target
 
 [Service]
 Type=simple
+User=${APP_USER}
+Group=${APP_USER}
+UMask=0077
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_DIR}/.env
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=${PORT}
+Environment=TMPDIR=/run/${APP_NAME}
 ExecStart=${node_path} ${APP_DIR}/dist/server/entry.mjs
 Restart=always
 RestartSec=5
+RuntimeDirectory=${APP_NAME}
+RuntimeDirectoryMode=0700
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
 ProtectSystem=full
-ReadWritePaths=${APP_DIR} /tmp /var/tmp
+ReadOnlyPaths=${APP_DIR}
+ReadWritePaths=/run/${APP_NAME} /tmp /var/tmp
 
 [Install]
 WantedBy=multi-user.target
@@ -235,6 +270,7 @@ server {
   listen 80;
   server_name ${DOMAIN};
   client_max_body_size 60m;
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
   location / {
     proxy_pass http://127.0.0.1:${PORT};
@@ -257,9 +293,12 @@ EOF
 
   if [ "$ENABLE_SSL" = "1" ]; then
     local email="${CERTBOT_EMAIL:-admin@${DOMAIN}}"
-    $SUDO certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$email" || {
-      echo "Certbot failed. Check DNS, then run: sudo certbot --nginx -d ${DOMAIN}" >&2
-    }
+    if ! $SUDO certbot --nginx --redirect -d "$DOMAIN" --non-interactive --agree-tos -m "$email"; then
+      $SUDO rm -f "/etc/nginx/sites-enabled/${APP_NAME}"
+      $SUDO nginx -t && $SUDO systemctl reload nginx
+      echo "Certbot failed; the ${APP_NAME} Nginx site was disabled to avoid HTTP-only exposure." >&2
+      return 1
+    fi
   fi
 }
 
@@ -272,9 +311,19 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+User=${APP_USER}
+Group=${APP_USER}
+UMask=0077
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_DIR}/.env
+Environment=BACKUP_DIR=${BACKUP_DIR}
 ExecStart=/usr/bin/env bash ${APP_DIR}/scripts/vps-backup.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadOnlyPaths=${APP_DIR}
+ReadWritePaths=${BACKUP_DIR} /tmp /var/tmp
 EOF
 
   $SUDO tee "/etc/systemd/system/${APP_NAME}-backup.timer" >/dev/null <<EOF
@@ -293,8 +342,13 @@ EOF
   $SUDO systemctl enable --now "${APP_NAME}-backup.timer"
 }
 
+if [ "$ENABLE_SSL" = "1" ] && [ -z "$DOMAIN" ]; then
+  echo "DOMAIN is required when ENABLE_SSL=1." >&2
+  exit 1
+fi
 install_system_packages
 checkout_code
+ensure_app_user
 write_env_file
 build_app
 install_systemd_service
@@ -306,7 +360,11 @@ echo "Service: systemctl status ${APP_NAME}"
 echo "Backup timer: systemctl status ${APP_NAME}-backup.timer"
 echo "Important: save APP_ENCRYPTION_KEY and BACKUP_ENCRYPTION_KEY from ${APP_DIR}/.env outside the VPS."
 if [ -n "$DOMAIN" ]; then
-  echo "URL: http://${DOMAIN}"
+  if [ "$ENABLE_SSL" = "1" ]; then
+    echo "URL: https://${DOMAIN}"
+  else
+    echo "URL: http://${DOMAIN}"
+  fi
 else
   echo "Local URL: http://127.0.0.1:${PORT}"
 fi

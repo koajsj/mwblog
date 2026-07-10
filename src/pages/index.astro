@@ -349,8 +349,12 @@ const randomMemoryDeck = [
       </div>
       <p class="home-kicker">Welcome home, {homeWelcomeName}</p>
       <h1 id="homeTitle">Our Nest</h1>
+      <div class="home-presence" aria-live="polite">
+        <span id="homeGreeting">A quiet moment for the two of you.</span>
+        <time id="homeClock"></time>
+      </div>
       <p class="home-hero__text">
-        A closed little space for just the two of you: today’s mood, old memories, photos, diaries, and the small things worth keeping.
+        Today’s mood, shared plans, old memories, and all the little things worth keeping close.
       </p>
       <nav class="home-quicklinks" aria-label="Home quick links">
         <a href="/records">Recent memories</a>
@@ -397,7 +401,7 @@ const randomMemoryDeck = [
                 </div>
               </article>
             )) : (
-              <p class="home-empty-inline">No date card yet.</p>
+              <p class="home-empty-inline">Your next meaningful date can have a place here.</p>
             )}
           </div>
         </article>
@@ -435,8 +439,8 @@ const randomMemoryDeck = [
             )) : (
               <article class="home-random-card home-random-card--empty is-active">
                 <p class="home-random-card__kind">Memory</p>
-                <h4>Nothing saved yet</h4>
-                <p class="home-random-card__body">Once you add photos, records, or diary entries, a random memory will appear here.</p>
+                <h4>A memory is waiting to happen</h4>
+                <p class="home-random-card__body">Add a photo, record, or diary entry and this corner will bring it back to you later.</p>
               </article>
             )}
           </div>
@@ -448,7 +452,7 @@ const randomMemoryDeck = [
       <div class="home-section-head">
         <div>
           <p class="home-section-head__kicker">Today</p>
-          <h2 id="statusTitle">Today status</h2>
+          <h2 id="statusTitle">How we are today</h2>
         </div>
       </div>
 
@@ -554,7 +558,7 @@ const randomMemoryDeck = [
             </a>
           );
         }) : (
-          <article class="home-empty-card">No records yet. Your next memory can start here.</article>
+          <article class="home-empty-card">Waiting for one of you to leave the next little memory.</article>
         )}
       </div>
     </section>
@@ -577,7 +581,7 @@ const randomMemoryDeck = [
             </span>
           </a>
         )) : (
-          <div class="home-photo-empty">No photo yet. The wall is waiting for the next moment.</div>
+          <div class="home-photo-empty">The photo wall is quiet for now. Your next shared moment belongs here.</div>
         )}
       </div>
     </section>
@@ -598,7 +602,7 @@ const randomMemoryDeck = [
             <p data-private-text={post.excerpt || ""} data-private-fallback="Unlock to read the latest diary note.">Unlock to read the latest diary note.</p>
           </a>
         )) : (
-          <article class="home-empty-card">No diary yet. The first entry can begin any day.</article>
+          <article class="home-empty-card">No diary entry yet. Leave a few words for the person who knows you best.</article>
         )}
       </div>
     </section>
@@ -632,7 +636,7 @@ const randomMemoryDeck = [
               </div>
             </article>
           )) : (
-            <article class="home-empty-card">No place card yet. Add a destination for the two of you.</article>
+            <article class="home-empty-card">Choose one place you would like to see together someday.</article>
           )}
         </div>
       </div>
@@ -663,6 +667,8 @@ const randomMemoryDeck = [
       </div>
     </section>
   </div>
+
+  <div class="home-feedback" id="homeFeedback" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <Fragment slot="scripts">
     <script is:inline src="/scripts/cover.js"></script>

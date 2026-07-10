@@ -215,8 +215,8 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
             : `${selectedLabel} logged ${fmtMinutes(total)} across ${entries.length} tasks`}
         </p>
         {noticeError && <p class="site-notice site-notice--error" role="alert">{noticeError}</p>}
-        {created === "activity" && <p class="site-notice" role="status">Activity saved.</p>}
-        {deleted === "activity" && <p class="site-notice" role="status">Activity deleted.</p>}
+        {created === "activity" && <p class="site-notice" role="status">Today’s activity has been added to your shared rhythm.</p>}
+        {deleted === "activity" && <p class="site-notice" role="status">The activity has been removed.</p>}
 
         <div class="act-head__tools">
           <div class="act-view act-mode" aria-label="Choose activity view">
@@ -348,7 +348,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
                 </div>
               </section>
             )) : (
-              <div class="timeline-empty">{selectedLabel} has no activity records for this day yet.</div>
+              <div class="timeline-empty">{selectedLabel} has not left an activity note for this day yet.</div>
             )}
           </div>
         </div>
@@ -378,7 +378,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
                   <span title={task.name}>{task.name}</span>
                   <strong>{monthTotal ? Math.round((task.minutes / monthTotal) * 100) : 0}%</strong>
                 </div>
-              )) : <p class="stat-empty">No tasks recorded in this month yet.</p>}
+              )) : <p class="stat-empty">This month is still waiting for a few shared rhythms.</p>}
             </div>
           </article>
 
@@ -399,7 +399,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
                 ))}
               </div>
             ) : (
-              <p class="stat-empty">Choose a month with activity records to see the duration bars.</p>
+              <p class="stat-empty">Choose a month with activity notes to revisit how the days were spent.</p>
             )}
           </article>
         </div>
@@ -423,7 +423,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
                 <div class="stat-bar__fill" style={`--w:${((task.minutes / total) * 100).toFixed(1)}%;--c:${colorForTask(task.name)}`}></div>
               </div>
             </div>
-          )) : <p class="stat-empty">Add {selectedLabel}'s tasks to see the task split.</p>}
+          )) : <p class="stat-empty">Add a few of {selectedLabel}'s activities to see this month take shape.</p>}
         </div>
       </section>
 

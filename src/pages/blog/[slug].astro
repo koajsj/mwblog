@@ -60,7 +60,7 @@ const commentError = Astro.url.searchParams.get("error");
         <div class="blog-detail-actions">
           <a class="blog-detail-back" href="/blog" aria-label="Back to blog">Back</a>
           {user?.id === post.author_id && (
-            <form class="blog-detail-delete" action="/api/blog/delete" method="post" data-confirm="Delete this post? This cannot be undone." data-confirm-title="Delete post?">
+            <form class="blog-detail-delete" action="/api/blog/delete" method="post" data-confirm="Remove this diary entry from your shared space? This cannot be undone." data-confirm-title="Remove this diary entry?">
               <input type="hidden" name="id" value={post.id} />
               <input type="hidden" name="return_to" value="/blog" />
               <button type="submit">Delete post</button>
@@ -114,7 +114,7 @@ const commentError = Astro.url.searchParams.get("error");
             })}
           </div>
         ) : (
-          <p class="cmt-empty">No comments yet. Be the first to leave one.</p>
+          <p class="cmt-empty">No little notes yet. Leave one for the other person.</p>
         )}
 
         {user ? (
@@ -122,7 +122,7 @@ const commentError = Astro.url.searchParams.get("error");
             <input type="hidden" name="target_type" value="blog" />
             <input type="hidden" name="target_id" value={post.id} />
             <input type="hidden" name="return_to" value={returnTo} />
-            <textarea name="body" maxlength="500" rows="2" placeholder="Write a comment..." required></textarea>
+            <textarea name="body" maxlength="500" rows="2" placeholder="Leave a little note for the other person..." required></textarea>
             <button class="cmt-form__send" type="submit">Send</button>
           </form>
         ) : (
