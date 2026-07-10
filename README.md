@@ -8,8 +8,10 @@
 
 ## 项目亮点
 
+- **封闭式双人空间**：只允许白名单内的两个账号登录和访问，全站页面与 API 都按同一私密空间收口，不对第三方开放注册或浏览。
 - **双人身份系统**：两位作者分别由白狗和棕狗代表，拥有独立颜色、昵称、状态与内容归属。
 - **柔和插画风界面**：云朵背景、玻璃质感导航、角落小狗、漂浮小幽灵，让整个站点像一间可爱的共享小屋。
+- **客户端优先加密**：博客正文、记录、评论、Todo、地点文案、状态文案和照片文件都会在浏览器端加密后再上传，服务端与数据库默认只保存密文。
 - **内容真实来自 Supabase**：文章、照片、生活记录、活动、地点、评论都走数据库和 Storage，不是静态演示页。
 - **Markdown 博客发布**：登录后可以上传 `.md` / `.markdown` 文件，自动解析 frontmatter、标签、摘要和正文。
 - **生活记录 + 照片联动**：同一天、同一作者上传的照片会自动出现在对应生活记录里。
@@ -17,7 +19,7 @@
 - **一天活动可视化**：用 7 个时间段记录当天活动，自动生成分类占比环形图和时段概览。
 - **首页今日状态**：展示双方今日心情、正在做的事和本地天气，让访客一眼看到两个人的当下。
 - **评论系统**：博客文章和生活记录都可以留言，适合两个人互相补充和回应。
-- **Vercel + Supabase 部署**：Astro SSR 部署在 Vercel，数据和存储托管在 Supabase。
+- **VPS + Supabase 部署**：Astro SSR 以 Node 服务运行，数据和存储托管在 Supabase。
 
 ## 页面截图
 
@@ -76,14 +78,14 @@ Activity 用 7 个时间段记录一天：Early Morning、Morning、Noon、After
 | 照片墙 | `/photos` | 按日期分组、照片上传、详情网格、3D 灯箱、删除自己的照片 |
 | 时段活动 | `/activity` | 日期切换、作者切换、活动新增、环形图、时段统计 |
 | 今年想去 | `/places` | 地点新增、tone 氛围卡片、删除自己的地点 |
-| 登录 | `/auth/login` | 邮箱密码登录、记住登录、跳转回来源页面 |
+| 登录 | `/auth/login` | 仅双账号登录、记住登录、跳转回来源页面 |
 
 ## 技术栈
 
 | 层 | 选型 |
 |---|---|
 | 前端框架 | Astro 6，SSR 模式 |
-| 部署适配器 | `@astrojs/vercel` |
+| 部署适配器 | `@astrojs/node` |
 | 数据库 / Auth / Storage | Supabase |
 | 包管理 | npm + `package-lock.json` |
 | 语言 | Astro、TypeScript、原生浏览器 JS |
@@ -95,15 +97,15 @@ Activity 用 7 个时间段记录一天：Early Morning、Morning、Noon、After
 ```text
 浏览器
   ↓ HTTPS
-Vercel Serverless Function (sin1)
+Nginx / Node SSR
   ↓ Astro SSR
 Supabase
-  ├─ Auth：邮箱密码登录
-  ├─ Postgres：profiles / blog_posts / photos / life_records / activity_entries / places / comments
-  └─ Storage：photos / blog-markdown
+  ├─ Auth：仅白名单双账号可登录
+  ├─ Postgres：profiles / blog_posts / photos / life_records / activity_entries / places / comments / private_space_keys
+  └─ Storage：photos / blog-markdown（加密后密文）
 ```
 
-Vercel 函数区域固定在 `sin1`，用于靠近 Supabase 项目所在区域，减少服务端读取数据时的延迟。
+生产部署默认由 Nginx 反代到本机 Astro Node 服务，数据访问仍由 Supabase 承载。
 
 ## 目录结构
 
@@ -117,7 +119,7 @@ astro/
 │   └── styles/          # 页面与共享样式
 ├── src/
 │   ├── layouts/         # PrototypeLayout / BaseLayout
-│   ├── lib/             # Supabase、auth、markdown、types 等工具
+│   ├── lib/             # Supabase、auth、private-space、markdown 等工具
 │   ├── pages/           # 页面路由和 API endpoints
 │   └── middleware.ts    # 全局认证与 locals 注入
 ├── supabase/
@@ -132,24 +134,31 @@ astro/
 
 ## 数据模型
 
-核心表都启用了 RLS，设计原则是：公开可读，登录用户只能写自己的内容。
+核心表都启用了 RLS，当前设计原则不是“公开可读”，而是“全站私有 + 固定双账号共享同一空间”。
 
 | 表 | 作用 |
 |---|---|
 | `profiles` | 两位作者资料、身份、昵称、天气、今日心情和正在做的事 |
-| `blog_posts` | Markdown 文章元数据、正文、标签和作者 |
-| `photos` | 照片元数据、拍摄日期、Storage 路径和归属 |
-| `life_records` | 每日生活记录、心情、正文 |
-| `activity_entries` | 某天某时段的活动类型、分钟数、描述 |
-| `places` | 今年想去的地方、理由、氛围 tone |
-| `comments` | 博客和生活记录的评论 |
+| `blog_posts` | Markdown 文章元数据、加密正文、标签和作者 |
+| `photos` | 照片元数据、拍摄日期、密文文件路径和归属 |
+| `life_records` | 每日生活记录、心情、加密正文 |
+| `activity_entries` | 某天某时段的活动类型、分钟数、加密描述 |
+| `places` | 今年想去的地方、加密地点名、加密备注、氛围 tone |
+| `comments` | 博客和生活记录的加密评论 |
+| `private_space_keys` | 私密空间密钥包，只保存浏览器生成后的包裹密钥材料 |
+
+说明：
+
+- 业务表统一带 `space_id` 或等效私密空间约束，两位白名单账号共享同一个固定空间。
+- 敏感文本字段要求写入客户端密文，数据库约束会拒绝未加密明文。
+- 作者信息仍然保留，用于区分是谁创建了内容。
 
 Storage buckets：
 
 | Bucket | 公开 | 用途 |
 |---|---|---|
-| `photos` | 是 | 存放照片，前端直接使用公开 URL |
-| `blog-markdown` | 否 | 备份上传的原始 Markdown 文件 |
+| `photos` | 否 | 存放加密后的照片密文文件 |
+| `blog-markdown` | 否 | 存放加密后的 Markdown 备份 |
 
 ## 本地开发
 
@@ -167,9 +176,13 @@ npm install
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
+APP_ENCRYPTION_KEY=...
+BACKUP_ENCRYPTION_KEY=...
 ```
 
 `SUPABASE_SERVICE_ROLE_KEY` 只允许在 Astro 服务端使用，不要写进任何 `PUBLIC_` 环境变量，也不要暴露给浏览器。
+
+没有 `SUPABASE_URL` 和 `SUPABASE_ANON_KEY` 时，Astro 中间件会直接返回 `500`，本地页面无法正常打开。
 
 ### 3. 启动开发服务器
 
@@ -198,6 +211,10 @@ REPO_URL=https://github.com/koajsj/mwblog.git
 BRANCH=main
 PORT=4321
 ENABLE_SSL=1
+CERTBOT_EMAIL=admin@example.com
+RUN_SETUP_USERS=1
+RUN_LEGACY_ENCRYPTION=0
+RUN_CLIENT_MIGRATION=0
 ```
 
 更新部署：
@@ -206,7 +223,9 @@ ENABLE_SSL=1
 sh scripts/vps-update.sh
 ```
 
-部署脚本会安装 Node.js 22、拉取代码、写入 `.env`、安装依赖、初始化 `mm/ww` 两个账号、构建 Astro、创建 systemd 服务，并在设置 `DOMAIN` 时配置 Nginx 反代。Nginx 上传体积限制为 60MB，应用照片上传限制为 50MB。
+部署脚本会安装 Node.js 22、拉取代码、校验 `.env`、按 `package-lock.json` 安装依赖、初始化 `mm/ww` 两个账号、构建 Astro、创建 systemd 服务，并在设置 `DOMAIN` 时配置 Nginx 反代。Nginx 上传体积限制为 60MB，应用照片上传限制为 50MB。
+
+更新脚本会先完成拉取、依赖安装和构建，成功后才重启 systemd 服务。旧的服务端加密迁移默认不会自动执行；只有旧数据还处在 `enc:v1` / `MWBLOG_FILE_V1` 阶段时，才临时设置 `RUN_LEGACY_ENCRYPTION=1`。客户端加密迁移需要解锁私密空间密钥，默认也不会自动执行，可在准备好 `SPACE_PASSPHRASE` 或 `SPACE_RECOVERY_CODE` 后设置 `RUN_CLIENT_MIGRATION=1` 或手动运行 `npm run migrate:client-encryption`。
 
 默认访问：
 
@@ -224,28 +243,29 @@ npm run build
 
 ## Supabase 初始化
 
-在 Supabase SQL Editor 中按顺序运行：
+在 Supabase SQL Editor 中按顺序运行 `supabase/migrations/` 下的全部 SQL 文件：
 
 ```text
-supabase/migrations/001_initial_schema.sql
-supabase/migrations/002_life_records.sql
-supabase/migrations/003_activity_entries.sql
-supabase/migrations/004_places.sql
-supabase/migrations/005_profile_weather.sql
-supabase/migrations/006_profile_status.sql
-supabase/migrations/007_profile_location.sql
-supabase/migrations/008_comments.sql
+001_initial_schema.sql
+...
+019_enforce_client_ciphertext.sql
 ```
 
-以后如果新增表或字段，请继续在 `supabase/migrations/` 下增加新的 SQL 文件，并手动到 Supabase Dashboard 跑一次。
+其中：
+
+- `017_private_space_closure.sql` 负责关闭公开注册、固定双账号白名单和私密空间约束。
+- `018_client_private_space_keys.sql` 负责存放浏览器端生成的私密空间密钥包。
+- `019_enforce_client_ciphertext.sql` 负责强制敏感字段只能写入客户端密文。
+
+以后如果新增表或字段，请继续在 `supabase/migrations/` 下增加新的 SQL 文件，并按顺序执行。
 
 ## 双人账号规则
 
 网站不提供注册入口。固定账号为：
 
 ```text
-mm / qwerasdf
-ww / qwerasdf
+mm  -> mm@our-nest.local
+ww  -> ww@our-nest.local
 ```
 
 配置好 `.env` 后运行一次：
@@ -255,6 +275,34 @@ npm run setup:users
 ```
 
 脚本会在 Supabase Auth 中创建或更新这两个账号，并同步 `profiles` 表中的 `author_key`。
+
+默认初始化密码当前为：
+
+```text
+mm / qwerasdf
+ww / qwerasdf
+```
+
+这是引导用默认值。首次部署后应立即在 Supabase Auth 中改成你们自己的密码；如果再次运行 `npm run setup:users`，脚本会把密码重置回默认值。
+
+## 客户端加密
+
+敏感数据会在浏览器端完成加密后再离开用户设备：
+
+- 文本内容使用 Web Crypto API 做 AES-256-GCM 加密。
+- 私密空间密钥由浏览器生成，服务端只保存包裹后的 key bundle，不保存明文解密密钥。
+- 照片会先在浏览器端加密，再上传到 Storage；即使拿到 Storage 对象地址，也无法直接看到原图。
+
+迁移旧数据时使用：
+
+```bash
+npm run migrate:client-encryption
+```
+
+运行前需要满足两件事：
+
+- 数据库已执行到 `018_client_private_space_keys.sql`
+- 先在浏览器里登录一次并完成私密空间解锁，让 `private_space_keys` 中存在可用 key bundle
 
 ## 上传与管理
 
@@ -266,7 +314,7 @@ npm run setup:users
 - 在 `/activity` 给当天某个时段添加活动。
 - 在 `/places` 添加想去的地方。
 
-删除操作只允许删除自己的内容。前端会显示确认弹窗，后端也会根据 `locals.user` 和记录归属校验。
+删除操作只允许删除自己的内容。前端会显示确认弹窗，后端也会根据 `locals.user`、白名单身份和记录归属校验。
 
 ## Markdown 支持
 
@@ -284,35 +332,24 @@ npm run setup:users
 
 ## 部署
 
-项目适合直接部署到 Vercel。
+项目当前推荐使用 VPS 部署。首次部署使用 `scripts/vps-deploy.sh`，后续更新使用 `scripts/vps-update.sh`。脚本会安装 Node.js、拉取 GitHub 代码、校验 `.env`、构建 Astro、安装 systemd 服务、配置 Nginx，并创建每日加密备份任务。
 
-1. GitHub 连接 Vercel 项目。
-2. 在 Vercel Project Settings 中配置环境变量。
-3. 确认 `vercel.json` 中的 region：
-
-```json
-{
-  "regions": ["sin1"]
-}
-```
-
-4. 推送到 GitHub 后由 Vercel 自动部署。
-
-常用流程：
+常用提交流程：
 
 ```bash
 npm run build
 git add .
 git commit -m "更新小窝"
-git push
+git push origin main
+sudo /opt/mwblog/scripts/vps-update.sh
 ```
 
 ## 注意事项
 
 - 本地 `.env` 如果指向生产 Supabase，那么本地新增/删除的数据也会影响线上数据。
 - `.env` 已在 `.gitignore` 中，绝对不要提交真实密钥。
-- 图片当前直接使用原图公开 URL，后续可以考虑上传时生成缩略图。
-- 大文件上传现在经过 Vercel 中转，未来可以改为浏览器直传 Supabase signed upload URL。
+- 这个项目不是公开站点，任何第三方账号即使存在于 Supabase，也不应被加入白名单。
+- 数据库和 Storage 默认保存的是密文，不代表可以忽略前端设备安全；浏览器已登录且已解锁时，明文仍会在客户端内存中短暂存在。
 - 登录页是独立 HTML，不走主 layout，这是为了保留动画角色登录页的完整视觉。
 
 ## 后续可以继续做的事

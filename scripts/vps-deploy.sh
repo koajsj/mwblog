@@ -10,6 +10,9 @@ NODE_MAJOR="${NODE_MAJOR:-22}"
 DOMAIN="${DOMAIN:-}"
 RUN_SETUP_USERS="${RUN_SETUP_USERS:-1}"
 ENABLE_SSL="${ENABLE_SSL:-0}"
+RUN_LEGACY_ENCRYPTION="${RUN_LEGACY_ENCRYPTION:-0}"
+RUN_CLIENT_MIGRATION="${RUN_CLIENT_MIGRATION:-0}"
+CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
 
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then
@@ -22,6 +25,10 @@ need_env() {
     echo "Missing required environment variable: ${name}" >&2
     exit 1
   fi
+}
+
+log() {
+  printf "\n==> %s\n" "$*"
 }
 
 prompt_env() {
@@ -43,6 +50,11 @@ generate_encryption_key() {
   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 }
 
+env_has_value() {
+  local name="$1"
+  grep -Eq "^[[:space:]]*${name}=.+" "$APP_DIR/.env" 2>/dev/null
+}
+
 ensure_env_line() {
   local name="$1"
   local value="$2"
@@ -53,7 +65,37 @@ ensure_env_line() {
   printf "\n%s=%s\n" "$name" "$value" >> "$APP_DIR/.env"
 }
 
+validate_env_file() {
+  local missing=0
+  local required=(
+    SUPABASE_URL
+    SUPABASE_ANON_KEY
+    SUPABASE_SERVICE_ROLE_KEY
+    APP_ENCRYPTION_KEY
+    BACKUP_ENCRYPTION_KEY
+  )
+
+  if [ ! -f "$APP_DIR/.env" ]; then
+    echo "Missing $APP_DIR/.env" >&2
+    exit 1
+  fi
+
+  for name in "${required[@]}"; do
+    if ! env_has_value "$name"; then
+      echo "Missing ${name} in $APP_DIR/.env" >&2
+      missing=1
+    fi
+  done
+
+  if [ "$missing" = "1" ]; then
+    exit 1
+  fi
+
+  chmod 600 "$APP_DIR/.env"
+}
+
 install_system_packages() {
+  log "Installing system packages"
   $SUDO apt-get update
   $SUDO apt-get install -y ca-certificates curl gnupg git nginx
 
@@ -67,8 +109,18 @@ install_system_packages() {
   fi
 }
 
+ensure_clean_checkout() {
+  if ! git -C "$APP_DIR" diff --quiet || ! git -C "$APP_DIR" diff --cached --quiet; then
+    echo "Git checkout has local changes. Commit or remove them before deploying: $APP_DIR" >&2
+    exit 1
+  fi
+}
+
 checkout_code() {
+  log "Checking out ${BRANCH}"
   if [ -d "$APP_DIR/.git" ]; then
+    ensure_clean_checkout
+    git -C "$APP_DIR" remote set-url origin "$REPO_URL"
     git -C "$APP_DIR" fetch origin "$BRANCH"
     git -C "$APP_DIR" checkout "$BRANCH"
     git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
@@ -80,11 +132,12 @@ checkout_code() {
 }
 
 write_env_file() {
+  log "Preparing environment file"
   if [ -f "$APP_DIR/.env" ]; then
     echo "Keeping existing $APP_DIR/.env"
     ensure_env_line "APP_ENCRYPTION_KEY" "$(generate_encryption_key)"
     ensure_env_line "BACKUP_ENCRYPTION_KEY" "$(generate_encryption_key)"
-    chmod 600 "$APP_DIR/.env"
+    validate_env_file
     return
   fi
 
@@ -102,22 +155,42 @@ SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
 APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY}
 BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY}
 EOF
-  chmod 600 "$APP_DIR/.env"
+  validate_env_file
+}
+
+install_dependencies() {
+  if [ -f package-lock.json ]; then
+    npm ci
+  else
+    npm install
+  fi
 }
 
 build_app() {
+  log "Installing dependencies and building"
   cd "$APP_DIR"
-  npm install --package-lock=false
+  install_dependencies
   if [ "$RUN_SETUP_USERS" = "1" ]; then
     npm run setup:users
   fi
-  if ! npm run encrypt:existing; then
-    echo "Existing-data encryption skipped. Apply Supabase migrations 014/015/016, then run: cd ${APP_DIR} && npm run encrypt:existing" >&2
+
+  if [ "$RUN_LEGACY_ENCRYPTION" = "1" ]; then
+    npm run encrypt:existing
+  else
+    echo "Skipping legacy server-side encryption migration. Set RUN_LEGACY_ENCRYPTION=1 to run it."
   fi
+
+  if [ "$RUN_CLIENT_MIGRATION" = "1" ]; then
+    npm run migrate:client-encryption
+  else
+    echo "Skipping client-encryption data migration. Run npm run migrate:client-encryption manually after unlocking the private-space key."
+  fi
+
   npm run build
 }
 
 install_systemd_service() {
+  log "Installing systemd service"
   local node_path
   node_path="$(command -v node)"
 
@@ -130,11 +203,16 @@ After=network.target
 Type=simple
 WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_DIR}/.env
+Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=${PORT}
 ExecStart=${node_path} ${APP_DIR}/dist/server/entry.mjs
 Restart=always
 RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=${APP_DIR} /tmp /var/tmp
 
 [Install]
 WantedBy=multi-user.target
@@ -151,6 +229,7 @@ install_nginx_site() {
     return
   fi
 
+  log "Installing Nginx site"
   $SUDO tee "/etc/nginx/sites-available/${APP_NAME}" >/dev/null <<EOF
 server {
   listen 80;
@@ -166,6 +245,8 @@ server {
     proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection "upgrade";
+    proxy_read_timeout 60s;
+    proxy_send_timeout 60s;
   }
 }
 EOF
@@ -175,13 +256,15 @@ EOF
   $SUDO systemctl reload nginx
 
   if [ "$ENABLE_SSL" = "1" ]; then
-    $SUDO certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "admin@${DOMAIN}" || {
+    local email="${CERTBOT_EMAIL:-admin@${DOMAIN}}"
+    $SUDO certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$email" || {
       echo "Certbot failed. Check DNS, then run: sudo certbot --nginx -d ${DOMAIN}" >&2
     }
   fi
 }
 
 install_backup_timer() {
+  log "Installing backup timer"
   $SUDO tee "/etc/systemd/system/${APP_NAME}-backup.service" >/dev/null <<EOF
 [Unit]
 Description=${APP_NAME} encrypted backup
@@ -190,6 +273,7 @@ After=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=${APP_DIR}
+EnvironmentFile=${APP_DIR}/.env
 ExecStart=/usr/bin/env bash ${APP_DIR}/scripts/vps-backup.sh
 EOF
 

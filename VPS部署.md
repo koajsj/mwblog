@@ -8,12 +8,12 @@
 curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-deploy.sh | sudo bash
 ```
 
-脚本会提示输入 Supabase URL、anon key、service role key，并自动生成 `APP_ENCRYPTION_KEY`。
+脚本会提示输入 Supabase URL、anon key、service role key，并自动生成 `APP_ENCRYPTION_KEY` 和 `BACKUP_ENCRYPTION_KEY`。如果已有 `/opt/mwblog/.env`，脚本会保留现有配置，只补缺失的加密密钥并做必需项校验。
 
 如果要绑定域名：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-deploy.sh | sudo DOMAIN="example.com" ENABLE_SSL=1 bash
+curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-deploy.sh | sudo env DOMAIN="example.com" ENABLE_SSL=1 CERTBOT_EMAIL="admin@example.com" bash
 ```
 
 ## 更新
@@ -22,6 +22,21 @@ curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-depl
 
 ```bash
 sudo /opt/mwblog/scripts/vps-update.sh
+```
+
+更新脚本会先拉取代码、按 `package-lock.json` 执行 `npm ci`、完成构建，然后才重启 systemd 服务。构建失败时不会提前重启线上服务。
+
+常用开关：
+
+```bash
+# 更新时顺手重新同步固定双账号，默认关闭
+sudo env RUN_SETUP_USERS=1 /opt/mwblog/scripts/vps-update.sh
+
+# 仅旧服务端加密数据迁移时使用，默认关闭
+sudo env RUN_LEGACY_ENCRYPTION=1 /opt/mwblog/scripts/vps-update.sh
+
+# 客户端加密迁移需要先准备 SPACE_PASSPHRASE 或 SPACE_RECOVERY_CODE
+sudo env RUN_CLIENT_MIGRATION=1 SPACE_RECOVERY_CODE="..." /opt/mwblog/scripts/vps-update.sh
 ```
 
 ## 自动备份
@@ -60,16 +75,17 @@ sudo tar -tzf /tmp/mwblog-backup.tar.gz | head
 
 ## Supabase 迁移
 
-首次部署或更新后，在 Supabase SQL Editor 按顺序执行 `supabase/migrations/` 里的迁移，至少要包含最新的：
+首次部署或更新后，在 Supabase SQL Editor 按顺序执行 `supabase/migrations/` 里的全部迁移，当前至少要到：
 
 ```text
-014_privacy_lockdown.sql
-015_private_text_encryption.sql
-016_encrypted_photo_storage.sql
+017_private_space_closure.sql
+018_client_private_space_keys.sql
+019_enforce_client_ciphertext.sql
 ```
 
-`015_private_text_encryption.sql` 会放宽加密字段的长度约束，并清空旧的经纬度字段。
-`016_encrypted_photo_storage.sql` 会允许照片 bucket 存储加密后的二进制文件。
+`017_private_space_closure.sql` 会关闭公开注册并收口到固定私密空间。
+`018_client_private_space_keys.sql` 会创建客户端密钥包表。
+`019_enforce_client_ciphertext.sql` 会强制敏感字段写入客户端密文。
 
 ## 恢复到新 Supabase
 
