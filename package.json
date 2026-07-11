@@ -11,6 +11,7 @@
     "start": "node ./dist/server/entry.mjs",
     "preview": "astro preview",
     "astro": "astro",
+    "test": "node --test --experimental-strip-types src/lib/*.test.ts",
     "setup:users": "node scripts/setup-fixed-users.mjs",
     "migrate:client-encryption": "node scripts/migrate-client-encryption.mjs",
     "backup": "node scripts/backup-site.mjs",

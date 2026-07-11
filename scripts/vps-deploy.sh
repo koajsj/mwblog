@@ -7,11 +7,11 @@ REPO_URL="${REPO_URL:-https://github.com/koajsj/mwblog.git}"
 BRANCH="${BRANCH:-main}"
 PORT="${PORT:-4321}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
-DOMAIN="${DOMAIN:-}"
+DOMAIN="${DOMAIN:-${1:-}}"
 APP_USER="${APP_USER:-${APP_NAME}}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/${APP_NAME}}"
 RUN_SETUP_USERS="${RUN_SETUP_USERS:-1}"
-ENABLE_SSL="${ENABLE_SSL:-0}"
+RESET_FIXED_USER_PASSWORDS="${RESET_FIXED_USER_PASSWORDS:-1}"
 RUN_CLIENT_MIGRATION="${RUN_CLIENT_MIGRATION:-0}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
 
@@ -66,16 +66,18 @@ ensure_env_line() {
   printf "\n%s=%s\n" "$name" "$value" >> "$APP_DIR/.env"
 }
 
-ensure_app_origin() {
-  if [ -z "$DOMAIN" ]; then
-    return
+set_env_line() {
+  local name="$1"
+  local value="$2"
+  if grep -q "^${name}=" "$APP_DIR/.env" 2>/dev/null; then
+    $SUDO sed -i "s|^${name}=.*|${name}=${value}|" "$APP_DIR/.env"
+  else
+    ensure_env_line "$name" "$value"
   fi
+}
 
-  local scheme="http"
-  if [ "$ENABLE_SSL" = "1" ]; then
-    scheme="https"
-  fi
-  ensure_env_line "APP_ORIGIN" "${APP_ORIGIN:-${scheme}://${DOMAIN}}"
+ensure_app_origin() {
+  set_env_line "APP_ORIGIN" "${APP_ORIGIN:-https://${DOMAIN}}"
 }
 
 validate_env_file() {
@@ -126,9 +128,7 @@ install_system_packages() {
     $SUDO apt-get install -y nodejs
   fi
 
-  if [ "$ENABLE_SSL" = "1" ]; then
-    $SUDO apt-get install -y certbot python3-certbot-nginx
-  fi
+  $SUDO apt-get install -y certbot python3-certbot-nginx
 }
 
 ensure_clean_checkout() {
@@ -180,11 +180,8 @@ EOF
 }
 
 install_dependencies() {
-  if [ -f package-lock.json ]; then
-    npm ci
-  else
-    npm install
-  fi
+  [ -f package-lock.json ] || { echo "package-lock.json is required." >&2; exit 1; }
+  npm ci
 }
 
 build_app() {
@@ -192,7 +189,7 @@ build_app() {
   cd "$APP_DIR"
   install_dependencies
   if [ "$RUN_SETUP_USERS" = "1" ]; then
-    npm run setup:users
+    RESET_FIXED_USER_PASSWORDS="$RESET_FIXED_USER_PASSWORDS" npm run setup:users
   fi
 
   if [ "$RUN_CLIENT_MIGRATION" = "1" ]; then
@@ -201,6 +198,7 @@ build_app() {
     echo "Skipping client-encryption migration. After applying migration 023, run it with SPACE_RECOVERY_CODE and SPACE_NEW_PASSPHRASE."
   fi
 
+  npm test
   npm run build
 }
 
@@ -248,11 +246,6 @@ EOF
 }
 
 install_nginx_site() {
-  if [ -z "$DOMAIN" ]; then
-    echo "DOMAIN not set; skipping Nginx site config."
-    return
-  fi
-
   log "Installing Nginx site"
   $SUDO tee "/etc/nginx/sites-available/${APP_NAME}" >/dev/null <<EOF
 server {
@@ -266,8 +259,10 @@ server {
     proxy_http_version 1.1;
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-Host \$host;
+    proxy_set_header X-Forwarded-Port \$server_port;
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_read_timeout 60s;
@@ -280,15 +275,30 @@ EOF
   $SUDO nginx -t
   $SUDO systemctl reload nginx
 
-  if [ "$ENABLE_SSL" = "1" ]; then
-    local email="${CERTBOT_EMAIL:-admin@${DOMAIN}}"
-    if ! $SUDO certbot --nginx --redirect -d "$DOMAIN" --non-interactive --agree-tos -m "$email"; then
-      $SUDO rm -f "/etc/nginx/sites-enabled/${APP_NAME}"
-      $SUDO nginx -t && $SUDO systemctl reload nginx
-      echo "Certbot failed; the ${APP_NAME} Nginx site was disabled to avoid HTTP-only exposure." >&2
-      return 1
-    fi
+  local email="${CERTBOT_EMAIL:-admin@${DOMAIN}}"
+  if ! $SUDO certbot --nginx --redirect -d "$DOMAIN" --non-interactive --agree-tos -m "$email"; then
+    $SUDO rm -f "/etc/nginx/sites-enabled/${APP_NAME}"
+    $SUDO nginx -t && $SUDO systemctl reload nginx
+    echo "Certbot failed; the ${APP_NAME} Nginx site was disabled to avoid HTTP-only exposure." >&2
+    return 1
   fi
+}
+
+install_update_command() {
+  $SUDO ln -sfn "$APP_DIR/scripts/vps-update.sh" /usr/local/bin/mwblog-update
+}
+
+wait_for_app() {
+  log "Checking application health"
+  for _ in $(seq 1 30); do
+    if curl -fsS --max-time 3 "http://127.0.0.1:${PORT}/auth/login" >/dev/null; then
+      return
+    fi
+    sleep 2
+  done
+  echo "Application health check failed." >&2
+  $SUDO journalctl -u "$APP_NAME" -n 60 --no-pager >&2 || true
+  exit 1
 }
 
 install_backup_timer() {
@@ -331,10 +341,12 @@ EOF
   $SUDO systemctl enable --now "${APP_NAME}-backup.timer"
 }
 
-if [ "$ENABLE_SSL" = "1" ] && [ -z "$DOMAIN" ]; then
-  echo "DOMAIN is required when ENABLE_SSL=1." >&2
-  exit 1
-fi
+prompt_env DOMAIN "Domain name, for example love.example.com"
+DOMAIN="${DOMAIN#http://}"
+DOMAIN="${DOMAIN#https://}"
+DOMAIN="${DOMAIN%%/*}"
+[ -n "$DOMAIN" ] || { echo "A domain name is required." >&2; exit 1; }
+[[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || { echo "Invalid domain name: $DOMAIN" >&2; exit 1; }
 install_system_packages
 checkout_code
 ensure_app_user
@@ -343,17 +355,12 @@ build_app
 install_systemd_service
 install_nginx_site
 install_backup_timer
+install_update_command
+wait_for_app
 
 echo "Deployment complete."
 echo "Service: systemctl status ${APP_NAME}"
 echo "Backup timer: systemctl status ${APP_NAME}-backup.timer"
 echo "Important: save BACKUP_ENCRYPTION_KEY from ${APP_DIR}/.env outside the VPS."
-if [ -n "$DOMAIN" ]; then
-  if [ "$ENABLE_SSL" = "1" ]; then
-    echo "URL: https://${DOMAIN}"
-  else
-    echo "URL: http://${DOMAIN}"
-  fi
-else
-  echo "Local URL: http://127.0.0.1:${PORT}"
-fi
+echo "URL: https://${DOMAIN}"
+echo "Next update: sudo mwblog-update"

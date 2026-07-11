@@ -198,8 +198,7 @@ npm run dev
 export SUPABASE_URL="https://your-project.supabase.co"
 export SUPABASE_ANON_KEY="your-anon-key"
 export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
-export DOMAIN="example.com"
-sh scripts/vps-deploy.sh
+curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-deploy.sh | sudo bash -s -- example.com
 ```
 
 常用变量：
@@ -212,7 +211,6 @@ BRANCH=main
 PORT=4321
 APP_USER=mwblog
 APP_ORIGIN=https://example.com
-ENABLE_SSL=1
 CERTBOT_EMAIL=admin@example.com
 RUN_SETUP_USERS=1
 RUN_CLIENT_MIGRATION=0
@@ -221,10 +219,10 @@ RUN_CLIENT_MIGRATION=0
 更新部署：
 
 ```bash
-sh scripts/vps-update.sh
+sudo mwblog-update
 ```
 
-部署脚本会安装 Node.js 22、拉取代码、校验 `.env`、按 `package-lock.json` 安装依赖、初始化 `mm/ww` 两个账号、构建 Astro，并以受限的 `APP_USER` systemd 账号运行服务。账号已存在时，初始化脚本只同步固定身份资料，不会重置现有密码；只有显式设置 `RESET_FIXED_USER_PASSWORDS=1` 才会重置。`.env` 会以 `root:APP_USER`、`0640` 保存，仅供应用与备份服务读取。`APP_ORIGIN` 用于信任 Nginx 转发的 HTTPS 协议并保证 CSRF 同源校验正常；部署或更新脚本会按域名自动补齐。设置 `ENABLE_SSL=1` 时必须提供域名，Certbot 或证书签发失败会中止部署并禁用该站点的 Nginx 配置，避免 HTTP 降级。Nginx 上传体积限制为 60MB，应用照片上传限制为 50MB。
+部署脚本会安装 Node.js 22、拉取代码、校验 `.env`、执行 `npm ci`、测试和构建、初始化 `kikou/scoinmic` 两个账号，并以受限的 `APP_USER` systemd 账号运行服务。HTTPS 默认强制启用，Certbot 或证书签发失败会中止部署。首次部署只需提供域名并按提示输入三个 Supabase 值；以后更新只需执行 `sudo mwblog-update`。
 
 更新脚本会先完成拉取、依赖安装和构建，成功后才重启 systemd 服务。构建或重启失败时会尝试回到更新前的提交并重新构建启动；数据迁移始终需要单独确认，数据库和 Storage 变更不会自动回滚。升级到迁移 `023` 时，先在 Supabase SQL Editor 执行该迁移，再用当前代码运行 `SPACE_PASSPHRASE="旧空间口令" SPACE_RECOVERY_CODE="恢复码" SPACE_NEW_PASSPHRASE="至少14位的新空间口令" npm run migrate:client-encryption`。脚本会把旧 `wc1` 数据、标签和图片升级为用途绑定的 `wc2`，逐项验证后才放行应用。若仍有 `enc:v1` / `MWBLOG_FILE_V1`，只在这次离线迁移中临时提供 `APP_ENCRYPTION_KEY` 并设置 `ALLOW_LEGACY_SERVER_DECRYPTION=1`。
 
@@ -254,6 +252,7 @@ npm run build
 021_harden_private_helpers.sql
 022_client_only_private_data_and_storage.sql
 023_bind_ciphertext_and_require_security_baseline.sql
+024_switch_fixed_accounts_to_kikou_scoinmic.sql
 ```
 
 其中：
@@ -265,6 +264,7 @@ npm run build
 - `021_harden_private_helpers.sql` 收紧数据库辅助函数并清理评论关联数据。
 - `022_client_only_private_data_and_storage.sql` 收口客户端密文和私有 Storage 策略。
 - `023_bind_ciphertext_and_require_security_baseline.sql` 强制新数据使用上下文绑定密文，并在迁移脚本验收完成前拒绝进入私密站点。
+- `024_switch_fixed_accounts_to_kikou_scoinmic.sql` 将固定账号白名单切换到 `kikou/scoinmic`，并保留旧账号对应的 profile 与内容归属。
 
 以后如果新增表或字段，请继续在 `supabase/migrations/` 下增加新的 SQL 文件，并按顺序执行。
 
@@ -273,8 +273,8 @@ npm run build
 网站不提供注册入口。固定账号为：
 
 ```text
-mm  -> mm@our-nest.local
-ww  -> ww@our-nest.local
+kikou    -> kikou@our-nest.local
+scoinmic -> scoinmic@our-nest.local
 ```
 
 配置好 `.env` 后运行一次：
@@ -288,8 +288,8 @@ npm run setup:users
 默认初始化密码当前为：
 
 ```text
-mm / qwerasdf
-ww / qwerasdf
+kikou / Qwer@1432
+scoinmic / Qwer@1432
 ```
 
 这是引导用默认值。首次部署后应立即在 Supabase Auth 中改成你们自己的密码。再次运行 `npm run setup:users` 只会同步固定身份资料；只有显式设置 `RESET_FIXED_USER_PASSWORDS=1` 才会重置密码。
@@ -350,7 +350,7 @@ npm run build
 git add .
 git commit -m "更新小窝"
 git push origin main
-sudo /opt/mwblog/scripts/vps-update.sh
+sudo mwblog-update
 ```
 
 ## 注意事项

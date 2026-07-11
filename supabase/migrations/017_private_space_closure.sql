@@ -12,8 +12,8 @@ language sql
 immutable
 as $$
   select case lower(coalesce(input_email, ''))
-    when 'mm@our-nest.local' then 'white'::public.author_key
-    when 'ww@our-nest.local' then 'brown'::public.author_key
+    when 'kikou@our-nest.local' then 'white'::public.author_key
+    when 'scoinmic@our-nest.local' then 'brown'::public.author_key
     else null
   end
 $$;
@@ -24,8 +24,8 @@ language sql
 immutable
 as $$
   select case lower(coalesce(input_email, ''))
-    when 'mm@our-nest.local' then 'mm'
-    when 'ww@our-nest.local' then 'ww'
+    when 'kikou@our-nest.local' then 'kikou'
+    when 'scoinmic@our-nest.local' then 'scoinmic'
     else null
   end
 $$;
@@ -36,8 +36,8 @@ language sql
 immutable
 as $$
   select case lower(coalesce(input_email, ''))
-    when 'mm@our-nest.local' then 'mm'
-    when 'ww@our-nest.local' then 'ww'
+    when 'kikou@our-nest.local' then 'kikou'
+    when 'scoinmic@our-nest.local' then 'scoinmic'
     else null
   end
 $$;
@@ -201,8 +201,8 @@ as $$
     where id = auth.uid()
       and space_id = public.private_space_id()
       and (
-        (author_key = 'white' and lower(email) = 'mm@our-nest.local')
-        or (author_key = 'brown' and lower(email) = 'ww@our-nest.local')
+        (author_key = 'white' and lower(email) = 'kikou@our-nest.local')
+        or (author_key = 'brown' and lower(email) = 'scoinmic@our-nest.local')
       )
   );
 $$;

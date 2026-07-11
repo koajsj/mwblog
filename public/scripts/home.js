@@ -176,9 +176,32 @@
   function setupWeather() {
     decryptHomeContent().then(function () {
       renderStatus();
+      refreshIpWeather();
     }).catch(function () {
       renderStatus();
+      refreshIpWeather();
     });
+  }
+
+  function refreshIpWeather() {
+    var who = currentWeatherWho();
+    if (!who || !window.fetch) return;
+    var target = document.getElementById((who === "brown" ? "brown" : "white") + "Weather");
+    if (!target) return;
+
+    fetch("/api/status/ip-weather", { headers: { accept: "application/json" } })
+      .then(function (response) {
+        if (!response.ok) throw new Error("weather unavailable");
+        return response.json();
+      })
+      .then(function (data) {
+        if (!data || !data.weather) return;
+        target.textContent = data.weather;
+        target.setAttribute("data-server-weather", data.weather);
+      })
+      .catch(function () {
+        if (!target.textContent.trim()) target.textContent = "Weather temporarily unavailable";
+      });
   }
 
   function typeQuote(id, text) {

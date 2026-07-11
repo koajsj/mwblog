@@ -18,7 +18,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const account = resolveFixedAccount(accountName);
 
   if (!account || !password) {
-    return redirect(backToLogin("Please enter account mm or ww and your password.", redirectTo), 303);
+    return redirect(backToLogin("Please enter account kikou or scoinmic and your password.", redirectTo), 303);
   }
 
   const rateLimit = checkLoginRateLimit(request, accountName);

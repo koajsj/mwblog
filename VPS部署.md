@@ -1,107 +1,62 @@
-# VPS 部署和更新
+# VPS 一键部署与更新
+
+适用于 Debian 12、已解析到 VPS 公网 IP 的个人域名，以及已经创建好的 Supabase 项目。
 
 ## 首次部署
 
-在 VPS 上执行一条命令：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-deploy.sh | sudo bash
-```
-
-脚本会提示输入 Supabase URL、anon key、service role key，并自动生成 `BACKUP_ENCRYPTION_KEY`。生产运行时不需要 `APP_ENCRYPTION_KEY`；它只用于显式允许的一次性旧数据迁移。如果已有 `/opt/mwblog/.env`，脚本会保留现有配置，只补缺失的备份密钥并做必需项校验。传入 `DOMAIN` 时会写入 `APP_ORIGIN`，让 Astro 仅信任该域名对应的 Nginx HTTPS 转发头。
-
-如果要绑定域名：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-deploy.sh | sudo env DOMAIN="example.com" ENABLE_SSL=1 CERTBOT_EMAIL="admin@example.com" bash
-```
-
-## 更新
-
-部署完成后，以后更新只需要：
-
-```bash
-sudo /opt/mwblog/scripts/vps-update.sh
-```
-
-更新脚本会先拉取代码、按 `package-lock.json` 执行 `npm ci`、完成构建，然后才重启 systemd 服务。构建或重启失败时会尝试恢复到更新前的提交并重新构建启动；启用数据迁移时，数据库和 Storage 的变更不能自动回滚。固定账号已存在时只同步身份资料，不会重置密码。
-
-常用开关：
-
-```bash
-# 更新时顺手重新同步固定双账号，默认关闭
-sudo env RUN_SETUP_USERS=1 /opt/mwblog/scripts/vps-update.sh
-
-# 先在 Supabase 执行 023，再用恢复码和新口令升级并验收 wc2 数据
-sudo env SPACE_RECOVERY_CODE="..." SPACE_NEW_PASSPHRASE="至少14位的新空间口令" npm run migrate:client-encryption
-
-# 仅在明确需要重置固定账号密码时使用
-sudo env RUN_SETUP_USERS=1 RESET_FIXED_USER_PASSWORDS=1 /opt/mwblog/scripts/vps-update.sh
-```
-
-## 自动备份
-
-部署和更新脚本会自动安装每天 03:20 运行的加密备份任务。手动备份可以执行：
-
-```bash
-sudo /opt/mwblog/scripts/vps-backup.sh
-```
-
-备份文件默认保存在：
+先在 Supabase SQL Editor 按文件名顺序执行 `supabase/migrations/` 下全部迁移，最新必须执行到：
 
 ```text
-/var/backups/mwblog/
+024_switch_fixed_accounts_to_kikou_scoinmic.sql
 ```
 
-备份包包含数据库导出与照片/Markdown 密文，不包含 `.env`、service role key 或其他运行凭据，并且会加密成 `*.tar.gz.enc`。
-
-第一次部署后，请把备份密钥保存到 VPS 之外，比如自己的电脑或密码管理器：
+然后在 VPS 执行一条命令，把 `love.example.com` 换成自己的域名：
 
 ```bash
-sudo grep '^BACKUP_ENCRYPTION_KEY=' /opt/mwblog/.env
+curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-deploy.sh | sudo bash -s -- love.example.com
 ```
 
-`BACKUP_ENCRYPTION_KEY` 只用于备份包。网站正文由浏览器端私密空间密钥加密，恢复能力依赖私密空间口令或恢复码，而不是 VPS 上的应用密钥。
-
-检查备份能不能解密：
-
-```bash
-cd /opt/mwblog
-sudo BACKUP_DIR=/var/backups/mwblog npm run backup:decrypt -- /var/backups/mwblog/你的备份文件.tar.gz.enc /tmp/mwblog-backup.tar.gz
-sudo tar -tzf /tmp/mwblog-backup.tar.gz | head
-```
-
-建议定期把 `/var/backups/mwblog/*.enc` 下载到自己电脑。只放在同一台 VPS 上，VPS 坏掉时也会一起丢。
-
-## Supabase 迁移
-
-首次部署或更新后，在 Supabase SQL Editor 按顺序执行 `supabase/migrations/` 里的全部迁移，当前至少要到：
+脚本只会在首次询问三个 Supabase 值：
 
 ```text
-017_private_space_closure.sql
-018_client_private_space_keys.sql
-019_enforce_client_ciphertext.sql
-020_lock_private_space_identities.sql
-021_harden_private_helpers.sql
-022_client_only_private_data_and_storage.sql
-023_bind_ciphertext_and_require_security_baseline.sql
+Supabase URL
+Supabase anon key
+Supabase service role key
 ```
 
-`017_private_space_closure.sql` 会关闭公开注册并收口到固定私密空间。
-`018_client_private_space_keys.sql` 会创建客户端密钥包表。
-`019_enforce_client_ciphertext.sql` 会强制敏感字段写入客户端密文。
-`020_lock_private_space_identities.sql` 会锁定身份字段并禁止客户端覆盖已存在的密钥包。
-`021_harden_private_helpers.sql` 会收紧辅助函数并清理多态评论孤儿数据。
-`022_client_only_private_data_and_storage.sql` 会强制新写入使用客户端密文，并收口最终 Storage 读取策略。
-`023_bind_ciphertext_and_require_security_baseline.sql` 会增加 `wc2` 用途绑定和安全版本门禁。执行后必须运行 `npm run migrate:client-encryption`；脚本成功验证数据库与 Storage 全部可解密后才会把版本标记为 23，否则站点保持 fail-closed。
+其余步骤自动完成：安装 Node.js、Nginx 和 Certbot，拉取代码，执行 `npm ci`、测试和构建，创建两个固定账号，申请 HTTPS 证书，安装 systemd 服务和每日加密备份。
 
-## 恢复到新 Supabase
+域名必须提前解析到 VPS。HTTPS 证书申请失败时部署会失败，不会把 HTTP 当作成功。
 
-先在新项目执行全部迁移，并把 `.env` 改成新项目的 `SUPABASE_URL` 和 `SUPABASE_SERVICE_ROLE_KEY`。然后执行：
+## 固定账号
+
+网站没有注册入口，应用和数据库都只允许以下两个账号：
+
+```text
+kikou / Qwer@1432
+scoinmic / Qwer@1432
+```
+
+如果旧 Supabase 中存在 `mm/ww`，先执行迁移 `024`，部署脚本会保留原用户 UUID 和历史内容归属，并把账号改名为 `kikou/scoinmic`。
+
+同时在 Supabase Dashboard 的 `Authentication -> Providers -> Email` 中关闭公开注册。
+
+## 后续更新
+
+部署完成后只需：
 
 ```bash
-cd /opt/mwblog
-sudo BACKUP_ENCRYPTION_KEY="你的备份密钥" npm run restore -- /var/backups/mwblog/你的备份文件.tar.gz.enc
+sudo mwblog-update
 ```
 
-恢复前必须在目标环境配置新的 Supabase 凭据，并单独提供原备份的 `BACKUP_ENCRYPTION_KEY`。备份不会恢复或覆盖 `.env`。
+更新脚本会拉取 `main`、执行 `npm ci`、同步固定账号、运行测试、构建、重启并检查服务。失败时会尝试恢复到更新前版本。
+
+## 常用检查
+
+```bash
+sudo systemctl status mwblog
+sudo journalctl -u mwblog -n 100 --no-pager
+sudo systemctl status mwblog-backup.timer
+```
+
+网站地址为 `https://你的域名`。天气由 VPS 根据访问 IP 自动定位，不需要浏览器位置权限。

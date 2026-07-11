@@ -450,7 +450,7 @@ const redirectTo = safeLocalRedirect(Astro.url.searchParams.get("redirect") || "
             <div class="form-group">
               <label id="email-label" for="account">Account</label>
               <div class="input-wrapper">
-                <input type="text" id="account" name="account" placeholder="mm or ww" autocomplete="username" required />
+                <input type="text" id="account" name="account" placeholder="kikou or scoinmic" autocomplete="username" required />
               </div>
             </div>
 
@@ -853,11 +853,11 @@ const redirectTo = safeLocalRedirect(Astro.url.searchParams.get("redirect") || "
         emailLabel.classList.remove("error-label");
         pwdLabel.classList.remove("error-label");
 
-        if (account !== "mm" && account !== "ww") {
+        if (account !== "kikou" && account !== "scoinmic") {
           e.preventDefault();
           emailInput.classList.add("error");
           emailLabel.classList.add("error-label");
-          errEl.textContent = "Please enter account mm or ww.";
+          errEl.textContent = "Please enter account kikou or scoinmic.";
           errEl.style.display = "block";
           triggerLoginError();
           return;

@@ -8,7 +8,8 @@ PORT="${PORT:-4321}"
 APP_USER="${APP_USER:-${APP_NAME}}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/${APP_NAME}}"
 DOMAIN="${DOMAIN:-}"
-RUN_SETUP_USERS="${RUN_SETUP_USERS:-0}"
+RUN_SETUP_USERS="${RUN_SETUP_USERS:-1}"
+RESET_FIXED_USER_PASSWORDS="${RESET_FIXED_USER_PASSWORDS:-1}"
 RUN_CLIENT_MIGRATION="${RUN_CLIENT_MIGRATION:-0}"
 
 SUDO=""
@@ -115,11 +116,19 @@ ensure_app_user() {
 }
 
 install_dependencies() {
-  if [ -f package-lock.json ]; then
-    npm ci
-  else
-    npm install
-  fi
+  [ -f package-lock.json ] || { echo "package-lock.json is required." >&2; exit 1; }
+  npm ci
+}
+
+wait_for_app() {
+  for _ in $(seq 1 30); do
+    if curl -fsS --max-time 3 "http://127.0.0.1:${PORT}/auth/login" >/dev/null; then
+      return
+    fi
+    sleep 2
+  done
+  echo "Application health check failed." >&2
+  return 1
 }
 
 install_systemd_service() {
@@ -207,7 +216,8 @@ rollback() {
   trap - ERR
   if [ "$ROLLBACK_ACTIVE" = "1" ] && [ -n "$PREVIOUS_REV" ]; then
     echo "Update failed. Restoring ${PREVIOUS_REV:0:7}." >&2
-    git checkout "$PREVIOUS_REV" >&2 || true
+    git checkout "$BRANCH" >&2 || true
+    git reset --hard "$PREVIOUS_REV" >&2 || true
     install_dependencies >&2 || true
     npm run build >&2 || true
     install_systemd_service >&2 || true
@@ -247,7 +257,7 @@ git pull --ff-only origin "$BRANCH"
 log "Installing dependencies and building"
 install_dependencies
 if [ "$RUN_SETUP_USERS" = "1" ]; then
-  npm run setup:users
+  RESET_FIXED_USER_PASSWORDS="$RESET_FIXED_USER_PASSWORDS" npm run setup:users
 fi
 
 if [ "$RUN_CLIENT_MIGRATION" = "1" ]; then
@@ -256,6 +266,7 @@ else
   echo "Skipping client-encryption migration. After applying migration 023, run it with SPACE_RECOVERY_CODE and SPACE_NEW_PASSPHRASE."
 fi
 
+npm test
 npm run build
 
 log "Restarting service"
@@ -263,6 +274,7 @@ install_systemd_service
 $SUDO systemctl daemon-reload
 $SUDO systemctl restart "$APP_NAME"
 $SUDO systemctl is-active --quiet "$APP_NAME"
+wait_for_app
 install_backup_timer
 ROLLBACK_ACTIVE=0
 trap - ERR
@@ -271,3 +283,4 @@ echo "Previous revision: ${PREVIOUS_REV:0:7}"
 echo "Current revision: $(git rev-parse --short HEAD)"
 echo "Service: systemctl status ${APP_NAME}"
 echo "Backup timer: systemctl status ${APP_NAME}-backup.timer"
+echo "URL: $(grep '^APP_ORIGIN=' "$APP_DIR/.env" | tail -n 1 | cut -d= -f2-)"
