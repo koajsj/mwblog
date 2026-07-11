@@ -253,7 +253,7 @@ fi
 if [ "$RUN_CLIENT_MIGRATION" = "1" ]; then
   npm run migrate:client-encryption
 else
-  echo "Skipping client-encryption data migration. Run npm run migrate:client-encryption manually after unlocking the private-space key."
+  echo "Skipping client-encryption migration. After applying migration 023, run it with SPACE_RECOVERY_CODE and SPACE_NEW_PASSPHRASE."
 fi
 
 npm run build

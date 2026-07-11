@@ -236,7 +236,7 @@ const deleted = Astro.url.searchParams.get("deleted");
           try {
             const privateSpace = (window as any).OurNestPrivate;
             if (!privateSpace?.encryptText) throw new Error("Private-space encryption is not ready.");
-            const encryptedTitle = title ? await privateSpace.encryptText(title) : "";
+            const encryptedTitle = title ? await privateSpace.encryptText(title, "photo.title") : "";
             const { path, mime_type } = await uploadImageFile(file);
             const res = await fetch("/api/photos/commit", {
               method: "POST",
@@ -417,9 +417,9 @@ const deleted = Astro.url.searchParams.get("deleted");
             lbDeleteId.value = item.canDelete ? item.id : "";
           }
           Promise.all([
-            privateSpace && privateSpace.decryptText ? privateSpace.decryptText(item.title || "") : Promise.resolve(item.title || ""),
-            privateSpace && privateSpace.decryptText ? privateSpace.decryptText(item.caption || "") : Promise.resolve(item.caption || ""),
-            item.diary && privateSpace && privateSpace.decryptText ? privateSpace.decryptText(item.diary.body || "") : Promise.resolve(item.diary && item.diary.body || ""),
+            privateSpace && privateSpace.decryptText ? privateSpace.decryptText(item.title || "", "photo.title") : Promise.resolve(item.title || ""),
+            privateSpace && privateSpace.decryptText ? privateSpace.decryptText(item.caption || "", "photo.caption") : Promise.resolve(item.caption || ""),
+            item.diary && privateSpace && privateSpace.decryptText ? privateSpace.decryptText(item.diary.body || "", "record.body") : Promise.resolve(item.diary && item.diary.body || ""),
           ]).then(function (values) {
             lbCap.textContent = values[0] || values[1] || "";
             if (item.diary) {

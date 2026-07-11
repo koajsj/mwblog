@@ -2,7 +2,7 @@ import { defineMiddleware } from "astro:middleware";
 import { isAllowedPrivateProfile, resolveFixedAccountByEmail } from "./lib/accounts";
 import { clearSessionCookies, getAccessToken, readSession } from "./lib/auth";
 import { createUserClient } from "./lib/supabase";
-import { trustedAppOrigin, withSecurityHeaders } from "./lib/security";
+import { trustedAppOrigin, withScriptNonce, withSecurityHeaders } from "./lib/security";
 import type { Profile } from "./lib/types";
 
 const protectedApiPrefixes = [
@@ -18,6 +18,7 @@ const protectedApiPrefixes = [
 ];
 const privatePagePrefixes = ["/blog", "/records", "/photos", "/places", "/activity", "/todo"];
 const authPages = ["/auth/login"];
+const REQUIRED_SECURITY_VERSION = 23;
 
 function isPrivatePagePath(pathname: string) {
   return pathname === "/" || privatePagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
@@ -71,38 +72,47 @@ export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.accessToken = accessToken;
 
   const allowedAccount = resolveFixedAccountByEmail(sessionState.user?.email);
+  const shouldValidatePrivateContext = needsAuth || authPages.includes(pathname);
   let profileLoadFailed = false;
+  let securityBaselineFailed = false;
 
-  if (sessionState.user && allowedAccount) {
+  if (sessionState.user && allowedAccount && shouldValidatePrivateContext) {
     const userClient = createUserClient(accessToken);
     try {
-      const { data, error } = await userClient
-        .from("profiles")
-        .select("id,email,author_key,display_name,created_at")
-        .eq("id", sessionState.user.id)
-        .maybeSingle();
+      const [{ data, error }, { data: securityVersion, error: securityError }] = await Promise.all([
+        userClient
+          .from("profiles")
+          .select("id,email,author_key,display_name,created_at")
+          .eq("id", sessionState.user.id)
+          .maybeSingle(),
+        userClient.rpc("private_security_version"),
+      ]);
 
       profileLoadFailed = Boolean(error);
+      securityBaselineFailed = Boolean(securityError) || Number(securityVersion) < REQUIRED_SECURITY_VERSION;
       context.locals.profile = error ? null : (data || null) as Profile | null;
     } catch {
       profileLoadFailed = true;
+      securityBaselineFailed = true;
     }
   }
 
-  if (sessionState.user && allowedAccount && profileLoadFailed) {
+  if (sessionState.user && allowedAccount && shouldValidatePrivateContext && (profileLoadFailed || securityBaselineFailed)) {
     const response = pathname.startsWith("/api/")
-      ? new Response(JSON.stringify({ error: "Private-space profile is temporarily unavailable." }), {
+      ? new Response(JSON.stringify({ error: "Private-space security baseline is unavailable." }), {
           status: 503,
           headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
         })
-      : new Response("Private space is temporarily unavailable. Please try again shortly.", {
+      : new Response("Private-space security baseline is unavailable. Apply the latest database migrations before continuing.", {
           status: 503,
           headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
         });
     return withSecurityHeaders(response, url);
   }
 
-  const hasAuthorizedSession = !sessionState.user || isAllowedPrivateProfile(context.locals.profile, sessionState.user.email);
+  const hasAuthorizedSession = !sessionState.user
+    || !shouldValidatePrivateContext
+    || isAllowedPrivateProfile(context.locals.profile, sessionState.user.email);
 
   if (needsAuth && !sessionState.user) {
     if (pathname.startsWith("/api/")) {
@@ -148,8 +158,10 @@ export const onRequest = defineMiddleware(async (context, next) => {
     return withSecurityHeaders(context.redirect("/?skipCover=1#home"), url);
   }
 
-  const response = await next();
-  withSecurityHeaders(response, url);
+  const scriptNonce = crypto.randomUUID().replace(/-/g, "");
+  let response = await next();
+  response = await withScriptNonce(response, scriptNonce);
+  withSecurityHeaders(response, url, scriptNonce);
 
   if (hasSessionCookie || isPrivatePagePath(pathname)) {
     response.headers.set("Cache-Control", "no-store");

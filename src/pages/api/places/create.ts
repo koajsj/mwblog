@@ -17,8 +17,8 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   let name = "";
   let note = "";
   try {
-    name = readEncryptedText(form.get("name"), { maxLength: 4096 });
-    note = readEncryptedText(form.get("note"), { maxLength: 4096 });
+    name = readEncryptedText(form.get("name"), { maxLength: 4096, context: "place.name" });
+    note = readEncryptedText(form.get("note"), { maxLength: 4096, context: "place.note" });
   } catch (error) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(error instanceof Error ? error.message : "Invalid encrypted place content.")}`, 303);
   }

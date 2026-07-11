@@ -11,6 +11,7 @@ import { createClient } from "@supabase/supabase-js";
 const TABLES = [
   "profiles",
   "private_space_keys",
+  "private_security_state",
   "blog_posts",
   "photos",
   "life_records",

@@ -110,17 +110,17 @@ const currentYear = posts.length ? postYear(posts[0]) : new Date().getFullYear()
           const author = (post.profiles?.author_key || "white") as AuthorKey;
           const dateValue = post.published_at || post.created_at;
           return (
-            <article class="post-item" data-authors={author} data-tags={(post.tags || []).join(" ")}>
+            <article class="post-item" data-authors={author} data-tags="" data-private-tags={JSON.stringify(post.tags || [])}>
               <a class="post-item__link" href={`/blog/${encodeURIComponent(post.slug)}`}>
                 <time class="post-item__date" datetime={dateValue}>{formatDate(dateValue)}</time>
-                <h2 data-private-text={post.title} data-private-fallback="Private post">Private post</h2>
-                <p data-private-text={post.excerpt || ""} data-private-fallback="Open it to read the full post.">Open it to read the full post.</p>
+                <h2 data-private-text={post.title} data-private-context="blog.title" data-private-fallback="Private post">Private post</h2>
+                <p data-private-text={post.excerpt || ""} data-private-context="blog.excerpt" data-private-fallback="Open it to read the full post.">Open it to read the full post.</p>
                 <div class="post-item__meta">
                   <span>{authorEmoji(author)} {authorDisplayName(post.profiles, author, authorNames)}</span>
                   <span data-private-minutes={post.content_markdown}>Locked</span>
                 </div>
                 <div class="post-item__tags">
-                  {(post.tags || []).map((tag) => <span>{tag}</span>)}
+                  {(post.tags || []).map((tag) => <span data-private-tag={tag}>Private tag</span>)}
                 </div>
                 <span class="post-item__arrow" aria-hidden="true">›</span>
               </a>
@@ -152,7 +152,7 @@ const currentYear = posts.length ? postYear(posts[0]) : new Date().getFullYear()
         </div>
         <div class="tag-grid" id="tagGrid">
           {allTags.length ? allTags.map((tag) => (
-            <button type="button" data-tag={tag}>{tag}</button>
+            <button type="button" data-tag="" data-private-tag={tag}>Private tag</button>
           )) : <span style="color:#7a8aa0;">No tags yet</span>}
         </div>
         <button class="tag-panel__all" id="clearTags" type="button">View all →</button>
@@ -167,14 +167,33 @@ const currentYear = posts.length ? postYear(posts[0]) : new Date().getFullYear()
 
   <Fragment slot="scripts">
     <script>
-      import { estimatedReadMinutes, markdownToPlainText, parseMarkdown, parseTagList, slugify } from "../../lib/markdown";
+      import { estimatedReadMinutes, parseMarkdown, parseTagList } from "../../lib/markdown";
 
       const privateSpace = (window as any).OurNestPrivate;
       privateSpace?.ready?.().then(async () => {
         await privateSpace.decryptTextNodes(document.getElementById("postList") || document);
+        const tagNodes = Array.from(document.querySelectorAll<HTMLElement>("[data-private-tag]"));
+        await Promise.all(tagNodes.map(async (node) => {
+          const value = await privateSpace.decryptText(node.dataset.privateTag || "", "blog.tag");
+          node.textContent = value;
+          if (node.matches("button")) node.dataset.tag = value;
+        }));
+        const visibleTags = new Set<string>();
+        document.querySelectorAll<HTMLElement>("#tagGrid button[data-tag]").forEach((button) => {
+          const key = (button.dataset.tag || "").trim().toLocaleLowerCase();
+          button.hidden = !key || visibleTags.has(key);
+          if (key) visibleTags.add(key);
+        });
+        const postNodes = Array.from(document.querySelectorAll<HTMLElement>("[data-private-tags]"));
+        await Promise.all(postNodes.map(async (post) => {
+          let encrypted: string[] = [];
+          try { encrypted = JSON.parse(post.dataset.privateTags || "[]"); } catch {}
+          const tags = await Promise.all(encrypted.map((tag) => privateSpace.decryptText(tag, "blog.tag")));
+          post.dataset.tags = tags.join(" ");
+        }));
         const minuteNodes = Array.from(document.querySelectorAll("[data-private-minutes]"));
         for (const node of minuteNodes) {
-          const markdown = await privateSpace.decryptText(node.getAttribute("data-private-minutes") || "");
+          const markdown = await privateSpace.decryptText(node.getAttribute("data-private-minutes") || "", "blog.content");
           node.textContent = `${estimatedReadMinutes(markdown || "")} min read`;
         }
       }).catch(() => {});
@@ -200,17 +219,19 @@ const currentYear = posts.length ? postYear(posts[0]) : new Date().getFullYear()
           try {
             const text = await file.text();
             const parsed = parseMarkdown(text, file.name.replace(/\.(md|markdown)$/i, "") || "post");
-            const slug = (uploadForm.querySelector('input[name="slug"]') as HTMLInputElement | null)?.value.trim() || slugify(parsed.title);
-            const tags = parseTagList((uploadForm.querySelector('input[name="tags"]') as HTMLInputElement | null)?.value.trim() || "");
+            const slug = (uploadForm.querySelector('input[name="slug"]') as HTMLInputElement | null)?.value.trim() || "";
+            const tags = [
+              ...parsed.tags,
+              ...parseTagList((uploadForm.querySelector('input[name="tags"]') as HTMLInputElement | null)?.value.trim() || ""),
+            ].slice(0, 12);
             const payload = {
               filename: file.name,
               slug,
-              tags: tags.join(","),
-              parsed_tags: parsed.tags,
+              tags: await Promise.all(tags.map((tag) => privateSpace.encryptText(tag, "blog.tag"))),
               return_to: "/blog",
-              title: await privateSpace.encryptText(parsed.title),
-              excerpt: await privateSpace.encryptText((parsed.excerpt || "").slice(0, 320)),
-              content_markdown: await privateSpace.encryptText(text),
+              title: await privateSpace.encryptText(parsed.title, "blog.title"),
+              excerpt: await privateSpace.encryptText((parsed.excerpt || "").slice(0, 320), "blog.excerpt"),
+              content_markdown: await privateSpace.encryptText(text, "blog.content"),
             };
             const res = await fetch("/api/blog/upload", {
               method: "POST",
@@ -219,7 +240,7 @@ const currentYear = posts.length ? postYear(posts[0]) : new Date().getFullYear()
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || "Could not publish the post.");
-            window.location.href = `/blog/${encodeURIComponent(data.slug || slug)}`;
+            window.location.href = `/blog/${encodeURIComponent(data.slug)}`;
           } catch (error) {
             if (hint) hint.textContent = error instanceof Error ? error.message : "Could not publish the post.";
             if (submitButton) {

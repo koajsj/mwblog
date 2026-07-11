@@ -54,7 +54,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const failTo = safeLocalRedirect(returnTo, "/activity");
   let body = "";
   try {
-    body = readEncryptedText(form.get("body"), { maxLength: 4096 });
+    body = readEncryptedText(form.get("body"), { maxLength: 4096, context: "activity.body" });
   } catch (error) {
     return redirect(withError(failTo, error instanceof Error ? error.message : "Invalid encrypted activity content."), 303);
   }

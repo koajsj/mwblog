@@ -36,7 +36,7 @@ function isBundle(value: unknown) {
     && kdf.name === "PBKDF2"
     && kdf.hash === "SHA-256"
     && Number.isInteger(kdf.iterations)
-    && Number(kdf.iterations) >= 200000
+    && Number(kdf.iterations) >= 600000
     && Number(kdf.iterations) <= 1000000
     && isEnvelope(value.passphrase)
     && isEnvelope(value.recovery)

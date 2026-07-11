@@ -25,8 +25,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   let body = "";
   let photoCaption = "";
   try {
-    body = readEncryptedText(payload?.body, { maxLength: 8192 });
-    photoCaption = readEncryptedText(payload?.photo_caption, { maxLength: 4096 });
+    body = readEncryptedText(payload?.body, { maxLength: 8192, context: "record.body" });
+    photoCaption = readEncryptedText(payload?.photo_caption, { maxLength: 4096, context: "photo.caption" });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Invalid encrypted record content." }, 400);
   }

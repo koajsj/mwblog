@@ -32,8 +32,8 @@ sudo /opt/mwblog/scripts/vps-update.sh
 # 更新时顺手重新同步固定双账号，默认关闭
 sudo env RUN_SETUP_USERS=1 /opt/mwblog/scripts/vps-update.sh
 
-# 客户端加密迁移需要先准备 SPACE_PASSPHRASE 或 SPACE_RECOVERY_CODE
-sudo env RUN_CLIENT_MIGRATION=1 SPACE_RECOVERY_CODE="..." /opt/mwblog/scripts/vps-update.sh
+# 先在 Supabase 执行 023，再用恢复码和新口令升级并验收 wc2 数据
+sudo env SPACE_RECOVERY_CODE="..." SPACE_NEW_PASSPHRASE="至少14位的新空间口令" npm run migrate:client-encryption
 
 # 仅在明确需要重置固定账号密码时使用
 sudo env RUN_SETUP_USERS=1 RESET_FIXED_USER_PASSWORDS=1 /opt/mwblog/scripts/vps-update.sh
@@ -84,6 +84,7 @@ sudo tar -tzf /tmp/mwblog-backup.tar.gz | head
 020_lock_private_space_identities.sql
 021_harden_private_helpers.sql
 022_client_only_private_data_and_storage.sql
+023_bind_ciphertext_and_require_security_baseline.sql
 ```
 
 `017_private_space_closure.sql` 会关闭公开注册并收口到固定私密空间。
@@ -92,6 +93,7 @@ sudo tar -tzf /tmp/mwblog-backup.tar.gz | head
 `020_lock_private_space_identities.sql` 会锁定身份字段并禁止客户端覆盖已存在的密钥包。
 `021_harden_private_helpers.sql` 会收紧辅助函数并清理多态评论孤儿数据。
 `022_client_only_private_data_and_storage.sql` 会强制新写入使用客户端密文，并收口最终 Storage 读取策略。
+`023_bind_ciphertext_and_require_security_baseline.sql` 会增加 `wc2` 用途绑定和安全版本门禁。执行后必须运行 `npm run migrate:client-encryption`；脚本成功验证数据库与 Storage 全部可解密后才会把版本标记为 23，否则站点保持 fail-closed。
 
 ## 恢复到新 Supabase
 

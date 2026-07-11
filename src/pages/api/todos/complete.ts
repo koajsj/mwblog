@@ -26,7 +26,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const ranges = parseTimeRanges(form.get("ranges"), { start: startTime, end: endTime });
   let activityBody = "";
   try {
-    activityBody = readEncryptedText(form.get("activity_body"), { maxLength: 4096 });
+    activityBody = readEncryptedText(form.get("activity_body"), { maxLength: 4096, context: "activity.body" });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Missing encrypted task content." }, 400);
   }

@@ -21,7 +21,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   let value: string | null = null;
   try {
-    value = readNullableEncryptedText(body.value, { maxLength: 4096 });
+    value = readNullableEncryptedText(body.value, {
+      maxLength: 4096,
+      context: field === "mood" ? "profile.mood" : "profile.doing",
+    });
   } catch (error) {
     return new Response(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "invalid encrypted text" }), { status: 400 });
   }

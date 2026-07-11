@@ -3,16 +3,18 @@
 
   if (window.OurNestPrivate) return;
 
-  var TEXT_PREFIX = "enc:wc1:";
-  var FILE_PREFIX = "MWBLOG-WC1 ";
+  var TEXT_PREFIX = "enc:wc2:";
+  var FILE_PREFIX = "MWBLOG-WC2 ";
+  var PREVIOUS_TEXT_PREFIX = "enc:wc1:";
+  var PREVIOUS_FILE_PREFIX = "MWBLOG-WC1 ";
   var LEGACY_TEXT_PREFIX = "enc:v1:";
   var LEGACY_FILE_PREFIX = "MWBLOG_FILE_V1 ";
-  var RAW_KEY_SESSION = "ournest.private.raw.v1";
-  var BUNDLE_SESSION = "ournest.private.bundle.v1";
+  var LEGACY_RAW_KEY_SESSION = "ournest.private.raw.v1";
+  var LEGACY_BUNDLE_SESSION = "ournest.private.bundle.v1";
   var CLEAR_SIGNAL_KEY = "ournest.private.clear.v1";
   var READY_EVENT = "ournest-private-ready";
   var FAILED_EVENT = "ournest-private-failed";
-  var PBKDF2_ITERATIONS = 310000;
+  var PBKDF2_ITERATIONS = 600000;
   var MAX_IMAGE_BYTES = 50 * 1024 * 1024;
   var ALLOWED_IMAGE_TYPES = {
     "image/jpeg": true,
@@ -28,6 +30,7 @@
   var photoObjectUrls = new Set();
   var textEncoder = new TextEncoder();
   var textDecoder = new TextDecoder();
+  var cspNonce = document.currentScript && document.currentScript.nonce || "";
 
   function b64urlEncode(bytes) {
     var binary = "";
@@ -45,14 +48,6 @@
     return bytes;
   }
 
-  function bytesEqual(left, right) {
-    if (!left || !right || left.length !== right.length) return false;
-    for (var i = 0; i < left.length; i += 1) {
-      if (left[i] !== right[i]) return false;
-    }
-    return true;
-  }
-
   function randomBytes(length) {
     var bytes = new Uint8Array(length);
     crypto.getRandomValues(bytes);
@@ -65,35 +60,11 @@
     });
   }
 
-  function readStoredRawKey() {
-    try {
-      var raw = sessionStorage.getItem(RAW_KEY_SESSION) || "";
-      return raw ? b64urlDecode(raw) : null;
-    } catch (error) {
-      return null;
-    }
-  }
-
-  function storeRawKey(bytes, bundle) {
-    try {
-      sessionStorage.setItem(RAW_KEY_SESSION, b64urlEncode(bytes));
-      if (bundle) sessionStorage.setItem(BUNDLE_SESSION, String(bundle.fingerprint || ""));
-    } catch (error) {}
-  }
-
   function clearStoredRawKey() {
     try {
-      sessionStorage.removeItem(RAW_KEY_SESSION);
-      sessionStorage.removeItem(BUNDLE_SESSION);
+      sessionStorage.removeItem(LEGACY_RAW_KEY_SESSION);
+      sessionStorage.removeItem(LEGACY_BUNDLE_SESSION);
     } catch (error) {}
-  }
-
-  function looksLikeCurrentBundle(bundle) {
-    try {
-      return sessionStorage.getItem(BUNDLE_SESSION) === String(bundle && bundle.fingerprint || "");
-    } catch (error) {
-      return false;
-    }
   }
 
   function trim(value) {
@@ -133,6 +104,18 @@
 
   function importSpaceKey(rawKey) {
     return crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  }
+
+  function encryptionContext(value) {
+    var context = trim(value);
+    if (!/^[a-z][a-z0-9.]{2,63}$/.test(context)) {
+      throw new Error("Private content is missing its encryption context.");
+    }
+    return context;
+  }
+
+  function additionalData(context) {
+    return textEncoder.encode("mwblog:wc2:" + encryptionContext(context));
   }
 
   function wrapRawKey(rawKey, secret) {
@@ -212,6 +195,7 @@
     if (gate) return gate;
 
     var style = document.createElement("style");
+    if (cspNonce) style.nonce = cspNonce;
     style.textContent = [
       ".private-space-gate{position:fixed;inset:0;z-index:300;background:rgba(242,245,250,.82);backdrop-filter:blur(18px);display:flex;align-items:center;justify-content:center;padding:20px;}",
       ".private-space-gate.is-hidden{display:none;}",
@@ -240,7 +224,7 @@
       '<section class="private-space-card" role="dialog" aria-modal="true" aria-labelledby="privateSpaceTitle">',
       '<h2 id="privateSpaceTitle">Unlock your private space</h2>',
       '<p id="privateSpaceLead">Sensitive content is encrypted in your browser. Enter the private-space passphrase to unlock it on this device.</p>',
-      '<label id="privateSpacePassphraseField"><input id="privateSpacePassphrase" type="password" autocomplete="current-password" placeholder="Private-space passphrase" /></label>',
+      '<label id="privateSpacePassphraseField"><input id="privateSpacePassphrase" type="password" autocomplete="off" placeholder="Private-space passphrase" /></label>',
       '<label id="privateSpaceConfirmField" class="is-hidden"><input id="privateSpaceConfirm" type="password" autocomplete="new-password" placeholder="Confirm the passphrase" /></label>',
       '<label id="privateSpaceRecoveryField" class="is-hidden"><textarea id="privateSpaceRecovery" spellcheck="false" placeholder="Recovery code"></textarea></label>',
       '<small id="privateSpaceHelp">This passphrase is separate from the login password and never leaves the browser.</small>',
@@ -437,8 +421,8 @@
       view.primary.onclick = function () {
         var passphrase = trim(view.passInput.value);
         var confirm = trim(view.confirmInput.value);
-        if (!passphrase || passphrase.length < 10) {
-          view.error.textContent = "Use a passphrase with at least 10 characters.";
+        if (!passphrase || passphrase.length < 14) {
+          view.error.textContent = "Use a passphrase with at least 14 characters.";
           return;
         }
         if (passphrase !== confirm) {
@@ -461,7 +445,6 @@
           bundle.recovery = result[1];
           bundle.fingerprint = result[2];
           return saveBundle(bundle).then(function (savedBundle) {
-            storeRawKey(rawKey, savedBundle);
             markReady(savedBundle);
             var createdView = showGate("created", { recoveryCode: recoveryCode });
             createdView.secondary.onclick = function () {
@@ -469,7 +452,10 @@
             };
             createdView.primary.onclick = function () {
               hideGate();
-              resolve(importSpaceKey(rawKey));
+              importSpaceKey(rawKey).then(function (key) {
+                rawKey.fill(0);
+                resolve(key);
+              }).catch(reject);
             };
           });
         }).catch(function (error) {
@@ -503,9 +489,12 @@
             if (fp !== String(bundle.fingerprint || "")) {
               throw new Error("The recovery code did not unlock this space.");
             }
-            storeRawKey(rawKey, bundle);
+            view.recoveryInput.value = "";
             markReady(bundle);
-            resolve(importSpaceKey(rawKey));
+            return importSpaceKey(rawKey).then(function (key) {
+              rawKey.fill(0);
+              resolve(key);
+            });
           });
         }).catch(function () {
           view.error.textContent = "The recovery code is incorrect.";
@@ -539,9 +528,12 @@
             if (fp !== String(bundle.fingerprint || "")) {
               throw new Error("wrong key");
             }
-            storeRawKey(rawKey, bundle);
+            view.passInput.value = "";
             markReady(bundle);
-            resolve(importSpaceKey(rawKey));
+            return importSpaceKey(rawKey).then(function (key) {
+              rawKey.fill(0);
+              resolve(key);
+            });
           });
         }).catch(function () {
           view.error.textContent = "The passphrase is incorrect.";
@@ -557,20 +549,6 @@
     if (!keyPromise) {
       keyPromise = fetchBundle().then(function (bundle) {
         if (!bundle) return setupKey();
-        var stored = readStoredRawKey();
-        if (stored && looksLikeCurrentBundle(bundle)) {
-          return fingerprint(stored).then(function (fp) {
-            if (fp !== String(bundle.fingerprint || "")) {
-              clearStoredRawKey();
-              throw new Error("stale key");
-            }
-            markReady(bundle);
-            return importSpaceKey(stored);
-          }).catch(function () {
-            clearStoredRawKey();
-            return showUnlock();
-          });
-        }
         return showUnlock();
       }).catch(function (error) {
         keyPromise = null;
@@ -581,24 +559,28 @@
     return keyPromise;
   }
 
-  function encryptText(value) {
+  function encryptText(value, expectedContext) {
     var text = String(value || "");
     if (!text) return Promise.resolve("");
+    var context = encryptionContext(expectedContext);
     return ensureReady().then(function (key) {
       var iv = randomBytes(12);
-      return crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, textEncoder.encode(text)).then(function (ciphertext) {
+      return crypto.subtle.encrypt({ name: "AES-GCM", iv: iv, additionalData: additionalData(context) }, key, textEncoder.encode(text)).then(function (ciphertext) {
         return TEXT_PREFIX + b64urlEncode(textEncoder.encode(JSON.stringify({
           iv: b64urlEncode(iv),
           data: b64urlEncode(new Uint8Array(ciphertext)),
+          context: context,
         })));
       });
     });
   }
 
-  function decryptText(value) {
+  function decryptText(value, expectedContext) {
     var text = String(value || "");
     if (!text) return Promise.resolve("");
-    if (text.indexOf(TEXT_PREFIX) !== 0) {
+    var isCurrent = text.indexOf(TEXT_PREFIX) === 0;
+    var isPrevious = text.indexOf(PREVIOUS_TEXT_PREFIX) === 0;
+    if (!isCurrent && !isPrevious) {
       if (text.indexOf(LEGACY_TEXT_PREFIX) === 0) {
         return Promise.resolve("[Encrypted content needs migration]");
       }
@@ -607,15 +589,21 @@
     return ensureReady().then(function (key) {
       var payload;
       try {
-        payload = JSON.parse(textDecoder.decode(b64urlDecode(text.slice(TEXT_PREFIX.length))));
+        var prefix = isCurrent ? TEXT_PREFIX : PREVIOUS_TEXT_PREFIX;
+        payload = JSON.parse(textDecoder.decode(b64urlDecode(text.slice(prefix.length))));
         if (!payload || typeof payload.iv !== "string" || typeof payload.data !== "string") {
           throw new Error("invalid payload");
+        }
+        if (isCurrent && (!payload.context || (expectedContext && payload.context !== expectedContext))) {
+          throw new Error("invalid context");
         }
       } catch (error) {
         return "[Encrypted content unavailable]";
       }
       return crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: b64urlDecode(payload.iv) },
+        isCurrent
+          ? { name: "AES-GCM", iv: b64urlDecode(payload.iv), additionalData: additionalData(payload.context) }
+          : { name: "AES-GCM", iv: b64urlDecode(payload.iv) },
         key,
         b64urlDecode(payload.data),
       ).then(function (plain) {
@@ -646,11 +634,12 @@
       }
       return ensureReady().then(function (key) {
         var iv = randomBytes(12);
-        return crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, bytes).then(function (ciphertext) {
+        return crypto.subtle.encrypt({ name: "AES-GCM", iv: iv, additionalData: additionalData("photo.file") }, key, bytes).then(function (ciphertext) {
           var header = FILE_PREFIX + JSON.stringify({
             iv: b64urlEncode(iv),
             tag: "packed",
             mimeType: detectedType,
+            context: "photo.file",
           }) + "\n";
           return {
             mimeType: detectedType,
@@ -664,18 +653,25 @@
   function decryptFileBuffer(buffer, fallbackMimeType) {
     var bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
     var prefix = textEncoder.encode(FILE_PREFIX);
-    if (!prefix.every(function (value, index) { return bytes[index] === value; })) {
+    var previousPrefix = textEncoder.encode(PREVIOUS_FILE_PREFIX);
+    var isCurrent = prefix.every(function (value, index) { return bytes[index] === value; });
+    var isPrevious = previousPrefix.every(function (value, index) { return bytes[index] === value; });
+    if (!isCurrent && !isPrevious) {
       if (textDecoder.decode(bytes.subarray(0, LEGACY_FILE_PREFIX.length)) === LEGACY_FILE_PREFIX) {
         return Promise.reject(new Error("Encrypted photo needs migration before it can be opened in the browser."));
       }
       return Promise.resolve({ bytes: bytes, mimeType: fallbackMimeType || "application/octet-stream" });
     }
+    var activePrefix = isCurrent ? prefix : previousPrefix;
     var newline = bytes.indexOf(10);
-    if (newline <= prefix.length) return Promise.reject(new Error("Encrypted photo header is invalid."));
-    var header = JSON.parse(textDecoder.decode(bytes.subarray(prefix.length, newline)));
+    if (newline <= activePrefix.length) return Promise.reject(new Error("Encrypted photo header is invalid."));
+    var header = JSON.parse(textDecoder.decode(bytes.subarray(activePrefix.length, newline)));
+    if (isCurrent && header.context !== "photo.file") return Promise.reject(new Error("Encrypted photo context is invalid."));
     return ensureReady().then(function (key) {
       return crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: b64urlDecode(header.iv) },
+        isCurrent
+          ? { name: "AES-GCM", iv: b64urlDecode(header.iv), additionalData: additionalData("photo.file") }
+          : { name: "AES-GCM", iv: b64urlDecode(header.iv) },
         key,
         bytes.subarray(newline + 1),
       ).then(function (plain) {
@@ -719,7 +715,7 @@
       var nodes = scope.querySelectorAll("[data-private-text]");
       return Promise.all(Array.prototype.map.call(nodes, function (node) {
         node.setAttribute("data-private-loaded", "loading");
-        return decryptText(node.getAttribute("data-private-text") || "").then(function (value) {
+        return decryptText(node.getAttribute("data-private-text") || "", node.getAttribute("data-private-context") || "").then(function (value) {
           node.textContent = value || node.getAttribute("data-private-fallback") || "";
           node.setAttribute("data-private-loaded", "true");
         }).catch(function (error) {
@@ -774,14 +770,15 @@
     });
   }
 
-  function encryptFormFields(form, fieldNames) {
-    var fields = Array.isArray(fieldNames) ? fieldNames : [];
+  function encryptFormFields(form, fieldContexts) {
+    var contexts = fieldContexts && typeof fieldContexts === "object" ? fieldContexts : {};
+    var fields = Object.keys(contexts);
     return ensureReady().then(function () {
       return Promise.all(fields.map(function (name) {
         var field = form.elements.namedItem(name);
         if (!field || typeof field.value !== "string") return null;
         var value = trim(field.value);
-        return encryptText(value).then(function (encrypted) {
+        return encryptText(value, contexts[name]).then(function (encrypted) {
           field.value = encrypted;
           return true;
         });
@@ -799,7 +796,10 @@
     hydratePhotoNodes: hydratePhotoNodes,
     fetchPhotoBlobUrl: fetchPhotoBlobUrl,
     encryptFormFields: encryptFormFields,
-    isEncryptedText: function (value) { return String(value || "").indexOf(TEXT_PREFIX) === 0; },
+    isEncryptedText: function (value) {
+      var text = String(value || "");
+      return text.indexOf(TEXT_PREFIX) === 0 || text.indexOf(PREVIOUS_TEXT_PREFIX) === 0;
+    },
     isLegacyEncryptedText: function (value) { return String(value || "").indexOf(LEGACY_TEXT_PREFIX) === 0; },
     clearCachedKey: clearPrivateState,
     events: { ready: READY_EVENT, failed: FAILED_EVENT },
@@ -814,6 +814,8 @@
     if (event.key === CLEAR_SIGNAL_KEY && event.newValue) clearAfterSessionLoss(false);
   });
 
+  // Remove raw keys left by releases that persisted them in sessionStorage.
+  clearStoredRawKey();
   ensureReady().then(function () {
     markReady(bundleCache);
   }).catch(function () {});

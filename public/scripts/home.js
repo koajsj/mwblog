@@ -11,8 +11,6 @@
     evening: "/assets/首页封面.webp",
     midnight: "/assets/首页封面.webp"
   };
-  var STATUS_KEY = "cuteblog.home.status.v1";
-  var WEATHER_CACHE_MS = 30 * 60 * 1000;
   var privateSpace = window.OurNestPrivate || null;
   var QUOTES = {
     white: ["Keep the little things carefully today.", "Take it slowly; the nest will grow bit by bit.", "If the breeze is right, stay in the sun a little longer."],
@@ -22,38 +20,10 @@
     mood: ["Softly happy", "A little tired", "Full of energy", "Calm and cozy", "Missing you", "Ready for small joys"],
     doing: ["Writing today's note", "Sorting small things", "Planning dinner", "On the way home", "Taking a soft break", "Waiting for you"]
   };
-  var WEATHER_LABELS = {
-    0: "Clear",
-    1: "Mostly clear",
-    2: "Partly cloudy",
-    3: "Overcast",
-    45: "Fog",
-    48: "Rime fog",
-    51: "Light drizzle",
-    53: "Drizzle",
-    55: "Dense drizzle",
-    56: "Freezing drizzle",
-    57: "Heavy freezing drizzle",
-    61: "Light rain",
-    63: "Rain",
-    65: "Heavy rain",
-    66: "Freezing rain",
-    67: "Heavy freezing rain",
-    71: "Light snow",
-    73: "Snow",
-    75: "Heavy snow",
-    77: "Snow grains",
-    80: "Rain showers",
-    81: "Heavy showers",
-    82: "Violent showers",
-    85: "Snow showers",
-    86: "Heavy snow showers",
-    95: "Thunderstorm",
-    96: "Thunderstorm with hail",
-    99: "Heavy thunderstorm with hail"
-  };
   var quoteTimers = {};
   var clockTimer = null;
+
+  try { localStorage.removeItem("cuteblog.home.status.v1"); } catch (error) {}
 
   function periodForHour(h) {
     if (h >= 5 && h < 8) return "morning";
@@ -115,59 +85,6 @@
     }, 2200);
   }
 
-  function readJson(key, fallback) {
-    try {
-      var data = JSON.parse(localStorage.getItem(key) || "");
-      return data || fallback;
-    } catch (e) {
-      return fallback;
-    }
-  }
-
-  function writeJson(key, value) {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch (e) {}
-  }
-
-  function todayStr() {
-    var d = new Date();
-    var pad = function (n) { return n < 10 ? "0" + n : String(n); };
-    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
-  }
-
-  function manualValue(saved, who, field) {
-    var item = saved[who] && saved[who][field];
-    return item && item.date === todayStr() ? String(item.value || "").trim() : "";
-  }
-
-  function storedWeatherText(value) {
-    if (!value) return "";
-    if (typeof value === "string") return value;
-    return String(value.text || "").trim();
-  }
-
-  function saveManualValue(who, field, value) {
-    var saved = readJson(STATUS_KEY, {});
-    saved[who] = saved[who] || {};
-    if (value) saved[who][field] = { date: todayStr(), value: value };
-    else delete saved[who][field];
-    writeJson(STATUS_KEY, saved);
-  }
-
-  function saveWeatherValue(who, weather) {
-    var saved = readJson(STATUS_KEY, {});
-    saved[who] = saved[who] || {};
-    saved[who].weather = weather;
-    writeJson(STATUS_KEY, saved);
-  }
-
-  function setWeatherText(who, text) {
-    var prefix = who === "brown" ? "brown" : "white";
-    var weather = document.getElementById(prefix + "Weather");
-    if (weather && text) weather.textContent = text;
-  }
-
   function serverWeatherFor(who) {
     var prefix = who === "brown" ? "brown" : "white";
     var el = document.getElementById(prefix + "Weather");
@@ -185,7 +102,7 @@
     if (!window.fetch || !privateSpace || !privateSpace.encryptText) {
       return Promise.reject(new Error("Private-space encryption is not ready."));
     }
-    return privateSpace.encryptText(value || "").then(function (encrypted) {
+    return privateSpace.encryptText(value || "", field === "mood" ? "profile.mood" : "profile.doing").then(function (encrypted) {
       return fetch("/api/status/field", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -203,53 +120,7 @@
     return who === "white" || who === "brown" ? who : "";
   }
 
-  function postWeatherToServer(text, location) {
-    if (!window.fetch || !text || !privateSpace || !privateSpace.encryptText) return;
-    try {
-      privateSpace.encryptText(text).then(function (encrypted) {
-        return fetch("/api/status/weather", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text: encrypted })
-        });
-      }).catch(function () {});
-    } catch (e) {}
-  }
-
-  function serverLocationFor(who) {
-    var prefix = who === "brown" ? "brown" : "white";
-    var el = document.getElementById(prefix + "Weather");
-    if (!el) return null;
-    var lat = parseFloat(el.getAttribute("data-lat") || "");
-    var lng = parseFloat(el.getAttribute("data-lng") || "");
-    var label = el.getAttribute("data-label") || "";
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    return { latitude: lat, longitude: lng, label: label || "Current location" };
-  }
-
-  function serverWeatherLabelFor(who) {
-    var prefix = who === "brown" ? "brown" : "white";
-    var el = document.getElementById(prefix + "Weather");
-    if (!el) return "";
-    var explicit = (el.getAttribute("data-label") || "").trim();
-    if (explicit) return explicit;
-    var raw = (el.getAttribute("data-server-weather") || el.textContent || "").trim();
-    if (!raw || /pending/i.test(raw)) return "";
-    return raw.split("·")[0].split("路")[0].trim();
-  }
-
-  function updateServerLocationAttrs(who, location) {
-    var prefix = who === "brown" ? "brown" : "white";
-    var el = document.getElementById(prefix + "Weather");
-    if (!el || !location) return;
-    if (Number.isFinite(location.latitude)) el.setAttribute("data-lat", String(location.latitude));
-    if (Number.isFinite(location.longitude)) el.setAttribute("data-lng", String(location.longitude));
-    if (location.label) el.setAttribute("data-label", location.label);
-  }
-
   function renderStatus() {
-    var saved = readJson(STATUS_KEY, {});
-    var meWho = currentWeatherWho();
     [
       { who: "white", prefix: "white", mood: "Softly happy", doing: "Sorting today's small notes" },
       { who: "brown", prefix: "brown", mood: "Full of energy", doing: "Planning the next outing" }
@@ -262,30 +133,17 @@
       // 对方那侧只读 SSR 值（本设备的 localStorage 可能是过期身份留下的，不可信）
       if (mood) {
         var serverMood = serverFieldText(item.who, "mood");
-        if (meWho === item.who) {
-          mood.textContent = manualValue(saved, item.who, "mood") || serverMood || item.mood;
-        } else {
-          mood.textContent = serverMood || item.mood;
-        }
+        mood.textContent = serverMood || item.mood;
       }
       if (doing) {
         var serverDoing = serverFieldText(item.who, "doing");
-        if (meWho === item.who) {
-          doing.textContent = manualValue(saved, item.who, "doing") || serverDoing || item.doing;
-        } else {
-          doing.textContent = serverDoing || item.doing;
-        }
+        doing.textContent = serverDoing || item.doing;
       }
 
       // 天气：当前用户优先用本地缓存（更新鲜），其次服务器值；对方只看服务器值
       if (weather) {
         var serverText = serverWeatherFor(item.who);
-        if (meWho === item.who) {
-          var cached = storedWeatherText(saved[item.who] && saved[item.who].weather);
-          weather.textContent = cached || serverText || "Location pending · Weather pending";
-        } else {
-          weather.textContent = serverText || "Location pending · Weather pending";
-        }
+        weather.textContent = serverText || "Location pending · Weather pending";
       }
     });
   }
@@ -300,7 +158,8 @@
           var attr = id.indexOf("Weather") >= 0 ? "data-server-weather" : "data-server-text";
           var encrypted = el.getAttribute(attr) || "";
           if (!encrypted) return Promise.resolve();
-          return privateSpace.decryptText(encrypted).then(function (value) {
+          var context = id.indexOf("Weather") >= 0 ? "profile.weather" : (id.indexOf("Mood") >= 0 ? "profile.mood" : "profile.doing");
+          return privateSpace.decryptText(encrypted, context).then(function (value) {
             el.setAttribute(attr, value || "");
           });
         })),
@@ -314,232 +173,12 @@
     });
   }
 
-  function weatherLabel(code) {
-    return WEATHER_LABELS[Number(code)] || "Weather";
-  }
-
-  function roundedTemp(value) {
-    var num = Number(value);
-    return Number.isFinite(num) ? Math.round(num) : null;
-  }
-
-  function buildLocationLabel(location) {
-    if (!location) return "Current location";
-    return (
-      location.city ||
-      location.locality ||
-      location.principalSubdivision ||
-      location.countryName ||
-      "Current location"
-    );
-  }
-
-  function fetchJson(url) {
-    return fetch(url).then(function (response) {
-      if (!response.ok) throw new Error("request failed");
-      return response.json();
-    });
-  }
-
-  function geocodeUrl(latitude, longitude) {
-    var url = "";
-    if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-      url += "&latitude=" + encodeURIComponent(latitude) + "&longitude=" + encodeURIComponent(longitude);
-    }
-    return url;
-  }
-
-  function geocodeLabel(label) {
-    if (!label || !window.fetch) return Promise.resolve(null);
-    var names = [label];
-    var simplified = label.replace(/[市区县]$/g, "").trim();
-    if (simplified && simplified !== label) names.push(simplified);
-
-    function tryName(index) {
-      if (index >= names.length) return Promise.resolve(null);
-      var url = "";
-      return fetchJson(url)
-        .then(function (data) {
-          var item = data && data.results && data.results[0];
-          if (!item) return tryName(index + 1);
-          return {
-            latitude: Number(item.latitude),
-            longitude: Number(item.longitude),
-            label: item.name || label
-          };
-        })
-        .catch(function () {
-          return tryName(index + 1);
-        });
-    }
-
-    return tryName(0)
-      .then(function (location) {
-        if (!location || !Number.isFinite(location.latitude) || !Number.isFinite(location.longitude)) return null;
-        return location;
-      })
-      .catch(function () { return null; });
-  }
-
-  function browserPosition() {
-    return new Promise(function (resolve, reject) {
-      if (true) {
-        reject(new Error("geolocation unavailable"));
-        return;
-      }
-      return;
-      ({ disabled: function () {} }).disabled(
-        function (position) {
-          resolve({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude
-          });
-        },
-        reject,
-        {
-          enableHighAccuracy: false,
-          maximumAge: WEATHER_CACHE_MS,
-          timeout: 8000
-        }
-      );
-    });
-  }
-
-  function detectLocation() {
-    return browserPosition()
-      .then(function (coords) {
-        return fetchJson(geocodeUrl(coords.latitude, coords.longitude))
-          .then(function (location) {
-            return {
-              latitude: coords.latitude,
-              longitude: coords.longitude,
-              label: buildLocationLabel(location)
-            };
-          })
-          .catch(function () {
-            return {
-              latitude: coords.latitude,
-              longitude: coords.longitude,
-              label: "Current location"
-            };
-          });
-      })
-      .catch(function () {
-        return fetchJson(geocodeUrl()).then(function (location) {
-          return {
-            latitude: Number(location.latitude),
-            longitude: Number(location.longitude),
-            label: buildLocationLabel(location)
-          };
-        });
-      });
-  }
-
-  function fetchWeather(latitude, longitude) {
-    var params = [
-      "latitude=" + encodeURIComponent(latitude),
-      "longitude=" + encodeURIComponent(longitude),
-      "current=temperature_2m,apparent_temperature,weather_code",
-      "timezone=auto",
-      "forecast_days=1"
-    ];
-    return Promise.reject(new Error("weather sync disabled"));
-  }
-
-  function weatherText(location, weather) {
-    var current = weather && weather.current;
-    var temp = roundedTemp(current && current.temperature_2m);
-    if (temp === null) return "";
-    return location.label + " · " + weatherLabel(current.weather_code) + " " + temp + "°C";
-  }
-
-  function refreshWeatherFromSavedLocation(who, shouldPersist) {
-    // 只要服务端 profile 里存过坐标，就可以实时拉天气；不要求这个用户当前在线。
-    var loc = serverLocationFor(who);
-    var locationPromise = loc ? Promise.resolve(loc) : geocodeLabel(serverWeatherLabelFor(who));
-    if (!window.fetch) return Promise.resolve("");
-    return locationPromise
-      .then(function (location) {
-        if (!location) return "";
-        return fetchWeather(location.latitude, location.longitude).then(function (weather) {
-          return { location: location, weather: weather };
-        });
-      })
-      .then(function (result) {
-        if (!result) return "";
-        var location = result.location;
-        var weather = result.weather;
-        updateServerLocationAttrs(who, location);
-        return { location: location, text: weatherText(location, weather) };
-      })
-      .then(function (weather) {
-        var text = weather && weather.text;
-        if (text) {
-          setWeatherText(who, text);
-          if (shouldPersist) postWeatherToServer(text, weather.location);
-        }
-        return text;
-      })
-      .catch(function () {
-        return "";
-      });
-  }
-
   function setupWeather() {
     decryptHomeContent().then(function () {
       renderStatus();
     }).catch(function () {
       renderStatus();
     });
-    return;
-    var home = document.getElementById("home");
-    var who = home && home.getAttribute("data-current-weather-who");
-    var loggedInWho = who === "white" || who === "brown" ? who : "";
-
-    // 不论是否登录，双方都优先用 profile 里上次保存的位置实时刷新一遍天气。
-    ["white", "brown"].forEach(function (item) {
-      refreshWeatherFromSavedLocation(item, item === loggedInWho);
-    });
-
-    if (!loggedInWho) return;
-
-    var saved = readJson(STATUS_KEY, {});
-    var cached = saved[loggedInWho] && saved[loggedInWho].weather;
-    var cachedText = storedWeatherText(cached);
-    var cachedLocation = cached && typeof cached === "object" ? cached.location : null;
-    if (cachedText) setWeatherText(loggedInWho, cachedText);
-    // 服务器若还没拿到我的天气或坐标，用本地缓存先 sync 一份。
-    var serverText = serverWeatherFor(loggedInWho);
-    var serverLocation = serverLocationFor(loggedInWho);
-    if (cachedText && cachedLocation && (cachedText !== serverText || !serverLocation)) {
-      postWeatherToServer(cachedText, cachedLocation);
-      updateServerLocationAttrs(loggedInWho, cachedLocation);
-    }
-    if (cached && typeof cached === "object" && Date.now() - Number(cached.updatedAt || 0) < WEATHER_CACHE_MS && serverLocation) return;
-    if (!window.fetch) return;
-
-    setWeatherText(loggedInWho, cachedText || "Syncing local weather");
-    detectLocation()
-      .then(function (location) {
-        if (!Number.isFinite(location.latitude) || !Number.isFinite(location.longitude)) {
-          throw new Error("missing coordinates");
-        }
-        return fetchWeather(location.latitude, location.longitude).then(function (weather) {
-          return { text: weatherText(location, weather), location: location };
-        });
-      })
-      .then(function (result) {
-        if (!result.text) throw new Error("empty weather");
-        setWeatherText(loggedInWho, result.text);
-        // 把坐标也存进本地缓存，下次进首页时一并同步给服务器
-        saveWeatherValue(loggedInWho, { text: result.text, updatedAt: Date.now(), location: result.location });
-        updateServerLocationAttrs(loggedInWho, result.location);
-        // 同步到服务器（含坐标），让对方设备能用这些坐标拉实时天气
-        postWeatherToServer(result.text, result.location);
-      })
-      .catch(function () {
-        if (!cachedText) setWeatherText(loggedInWho, "Location pending · Weather pending");
-      });
   }
 
   function typeQuote(id, text) {
@@ -672,7 +311,9 @@
       if (clearBtn) clearBtn.disabled = true;
       setSync("Saving…", "idle");
       postFieldToServer(edit.field, trimmed).then(function () {
-        saveManualValue(edit.who, edit.field, trimmed);
+        if (activeEdit && activeEdit.target) {
+          activeEdit.target.setAttribute("data-server-text", trimmed);
+        }
         renderStatus();
         setSync(trimmed ? "Saved" : "Default restored", "saved");
         closeEditor();
@@ -836,7 +477,6 @@
 
   setPeriod(periodForHour(new Date().getHours()));
   setupClock();
-  renderStatus();
   setupWeather();
   setupStatusActions();
   setupPhotos();

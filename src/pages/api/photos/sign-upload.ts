@@ -35,7 +35,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const sourceBytes = new Uint8Array(await file.arrayBuffer());
   let detectedType = "";
   try {
-    detectedType = parseEncryptedFileHeader(sourceBytes).mimeType;
+    const encryptedFile = parseEncryptedFileHeader(sourceBytes);
+    if (!encryptedFile.current) throw new Error("Photo must use the current client-encryption format.");
+    detectedType = encryptedFile.mimeType;
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Invalid encrypted photo upload." }, 400);
   }

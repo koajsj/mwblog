@@ -22,7 +22,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   let text = "";
   try {
-    text = readEncryptedText(body.text, { maxLength: 4096 });
+    text = readEncryptedText(body.text, { maxLength: 4096, context: "profile.weather" });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : "invalid encrypted text" }, 400);
   }

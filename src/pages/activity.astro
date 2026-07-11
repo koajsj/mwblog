@@ -324,7 +324,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
             {timelineRows.length ? timelineRows.map((row) => (
               <section class="timeline-row">
                 <div class="timeline-row__label" title={taskDisplay(row.name)}>
-                  <strong data-private-text={row.name} data-private-fallback="Private task">{taskDisplay(row.name)}</strong>
+                  <strong data-private-text={row.name} data-private-context="activity.body" data-private-fallback="Private task">{taskDisplay(row.name)}</strong>
                   <span>{fmtMinutes(row.minutes)}</span>
                 </div>
                 <div class="timeline-row__track">
@@ -339,7 +339,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
                         style={`--x:${((start / 1440) * 100).toFixed(3)}%;--w:${((duration / 1440) * 100).toFixed(3)}%;--bar:${colorForTask(name)}`}
                         title={`${taskDisplay(name)} ${fmtEntryTime(entry)} (${fmtMinutes(duration)})`}
                       >
-                        <span class="timeline-block__name" data-private-text={name} data-private-fallback="Private task">{taskDisplay(name)}</span>
+                        <span class="timeline-block__name" data-private-text={name} data-private-context="activity.body" data-private-fallback="Private task">{taskDisplay(name)}</span>
                         <span class="timeline-block__time">{fmtEntryTime(entry)}</span>
                         {isOwner && (
                           <form action="/api/activity/delete" method="post" class="time-block__delform" data-confirm="Delete this activity record?" data-confirm-title="Delete activity?" style="display:inline;">
@@ -381,7 +381,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
               {monthStats.length ? monthStats.map((task) => (
                 <div class="month-legend__item">
                   <i style={`--c:${colorForTask(task.name)}`}></i>
-                  <span title={taskDisplay(task.name)} data-private-text={task.name} data-private-fallback="Private task">{taskDisplay(task.name)}</span>
+                  <span title={taskDisplay(task.name)} data-private-text={task.name} data-private-context="activity.body" data-private-fallback="Private task">{taskDisplay(task.name)}</span>
                   <strong>{monthTotal ? Math.round((task.minutes / monthTotal) * 100) : 0}%</strong>
                 </div>
               )) : <p class="stat-empty">This month is still waiting for a few shared rhythms.</p>}
@@ -400,7 +400,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
                     <div class="month-bar__column">
                       <span>{fmtMinutes(task.minutes)}</span>
                     </div>
-                    <p title={taskDisplay(task.name)} data-private-text={task.name} data-private-fallback="Private task">{taskDisplay(task.name)}</p>
+                    <p title={taskDisplay(task.name)} data-private-text={task.name} data-private-context="activity.body" data-private-fallback="Private task">{taskDisplay(task.name)}</p>
                   </div>
                 ))}
               </div>
@@ -422,7 +422,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
           {stats.length ? stats.map((task) => (
             <div class="stat-bar">
               <div class="stat-bar__top">
-                <span title={taskDisplay(task.name)} data-private-text={task.name} data-private-fallback="Private task">{taskDisplay(task.name)}</span>
+                <span title={taskDisplay(task.name)} data-private-text={task.name} data-private-context="activity.body" data-private-fallback="Private task">{taskDisplay(task.name)}</span>
                 <span>{fmtMinutes(task.minutes)}</span>
               </div>
               <div class="stat-bar__rail">
@@ -497,7 +497,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
             if (submit && submit.disabled) return;
             if (submit) submit.disabled = true;
             if (error) error.classList.add("is-hidden");
-            privateSpace.encryptFormFields(form, ["body"]).then(function () {
+            privateSpace.encryptFormFields(form, { body: "activity.body" }).then(function () {
               form.submit();
             }).catch(function () {
               if (submit) submit.disabled = false;

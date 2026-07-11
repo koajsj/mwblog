@@ -258,12 +258,19 @@ async function main() {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
+    const { error: lockError } = await supabase
+      .from("private_security_state")
+      .upsert({ space_id: "private-couple-space", version: 22, verified_at: null });
+    if (lockError) throw lockError;
+
     const idMap = await restoreProfiles(supabase, prepared.root);
     for (const table of RESTORE_TABLES) {
       const rows = readJson(join(prepared.root, "tables", `${table}.json`)).map((row) => remapOwner(row, table, idMap));
       await upsertRows(supabase, table, rows);
     }
     await restoreStorage(supabase, prepared.root);
+    const securityState = readJson(join(prepared.root, "tables", "private_security_state.json"));
+    await upsertRows(supabase, "private_security_state", securityState);
     console.log("Restore complete.");
   } finally {
     prepared.cleanup();

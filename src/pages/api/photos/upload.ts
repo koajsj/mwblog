@@ -18,8 +18,8 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   let title: string | null = null;
   let caption: string | null = null;
   try {
-    title = readNullableEncryptedText(form.get("title"), { maxLength: 4096 });
-    caption = readNullableEncryptedText(form.get("caption"), { maxLength: 4096 });
+    title = readNullableEncryptedText(form.get("title"), { maxLength: 4096, context: "photo.title" });
+    caption = readNullableEncryptedText(form.get("caption"), { maxLength: 4096, context: "photo.caption" });
   } catch (error) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(error instanceof Error ? error.message : "Invalid encrypted photo text.")}`, 303);
   }
@@ -40,7 +40,9 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const sourceBytes = new Uint8Array(await file.arrayBuffer());
   let detectedType = "";
   try {
-    detectedType = parseEncryptedFileHeader(sourceBytes).mimeType;
+    const encryptedFile = parseEncryptedFileHeader(sourceBytes);
+    if (!encryptedFile.current) throw new Error("Photo must use the current client-encryption format.");
+    detectedType = encryptedFile.mimeType;
   } catch (error) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(error instanceof Error ? error.message : "Invalid encrypted photo upload.")}`, 303);
   }

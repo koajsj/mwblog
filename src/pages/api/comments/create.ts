@@ -19,7 +19,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   };
   let body = "";
   try {
-    body = readEncryptedText(form.get("body"), { maxLength: 4096 });
+    body = readEncryptedText(form.get("body"), { maxLength: 4096, context: "comment.body" });
   } catch (error) {
     return errorRedirect(error instanceof Error ? error.message : "Invalid encrypted comment.");
   }

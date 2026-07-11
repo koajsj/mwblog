@@ -210,7 +210,7 @@ const deleted = Astro.url.searchParams.get("deleted");
                         </div>
                       )}
                       <div class="note__body">
-                        <p class="note__text" data-private-text={record.body} data-private-fallback="Unlock to read this record."></p>
+                        <p class="note__text" data-private-text={record.body} data-private-context="record.body" data-private-fallback="Unlock to read this record."></p>
                       </div>
                       <span class="note__hint">Click to expand ▾</span>
                       {user?.id === record.owner_id && (
@@ -235,7 +235,7 @@ const deleted = Astro.url.searchParams.get("deleted");
                                     <span class="cmt-meta__time">{formatCommentTime(c.created_at)}</span>
                                   </div>
                                   <div class="cmt-bubble">
-                                    <span data-private-text={c.body} data-private-fallback="Unlock to read this comment."></span>
+                                    <span data-private-text={c.body} data-private-context="comment.body" data-private-fallback="Unlock to read this comment."></span>
                                     {user?.id === c.author_id && (
                                       <span class="cmt-bubble__delete">
                                         <form action="/api/comments/delete" method="post" data-confirm="Delete this comment?" data-confirm-title="Delete comment?">
@@ -320,8 +320,8 @@ const deleted = Astro.url.searchParams.get("deleted");
           try {
             const privateSpace = (window as any).OurNestPrivate;
             if (!privateSpace?.encryptText) throw new Error("Private-space encryption is not ready.");
-            const encryptedBody = await privateSpace.encryptText(body);
-            const encryptedCaption = await privateSpace.encryptText((body || "Photo").slice(0, 120));
+            const encryptedBody = await privateSpace.encryptText(body, "record.body");
+            const encryptedCaption = await privateSpace.encryptText((body || "Photo").slice(0, 120), "photo.caption");
             const photos = [];
             for (let i = 0; i < files.length; i++) {
               if (status) status.textContent = `Uploading photo ${i + 1} of ${files.length}…`;
@@ -534,7 +534,7 @@ const deleted = Astro.url.searchParams.get("deleted");
             }
             if (submit && submit.disabled) return;
             if (submit) submit.disabled = true;
-            privateSpace.encryptFormFields(commentForm, ["body"]).then(function () {
+            privateSpace.encryptFormFields(commentForm, { body: "comment.body" }).then(function () {
               commentForm.submit();
             }).catch(function () {
               if (submit) {

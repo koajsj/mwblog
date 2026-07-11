@@ -121,7 +121,21 @@ export function trustedAppOrigin(url: URL) {
   }
 }
 
-export function withSecurityHeaders(response: Response, url: URL) {
+export async function withScriptNonce(response: Response, nonce: string) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("text/html") || !response.body) return response;
+
+  const html = await response.text();
+  const headers = new Headers(response.headers);
+  const protectedHtml = html.replace(/<(script|style)(?=[\s>])(?![^>]*\bnonce=)/gi, `<$1 nonce="${nonce}"`);
+  return new Response(protectedHtml, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+export function withSecurityHeaders(response: Response, url: URL, scriptNonce = "") {
   response.headers.set("Content-Security-Policy", [
     "default-src 'self'",
     "base-uri 'self'",
@@ -131,8 +145,10 @@ export function withSecurityHeaders(response: Response, url: URL) {
     `connect-src ${cspConnectSrc()}`,
     "img-src 'self' data: blob: https:",
     "font-src 'self' data: https://fonts.gstatic.com",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "script-src 'self' 'unsafe-inline'",
+    `style-src 'self' https://fonts.googleapis.com${scriptNonce ? ` 'nonce-${scriptNonce}'` : ""}`,
+    `style-src-elem 'self' https://fonts.googleapis.com${scriptNonce ? ` 'nonce-${scriptNonce}'` : ""}`,
+    "style-src-attr 'unsafe-inline'",
+    `script-src 'self'${scriptNonce ? ` 'nonce-${scriptNonce}'` : ""}`,
     "media-src 'self' blob:",
   ].join("; "));
   response.headers.set("X-Content-Type-Options", "nosniff");

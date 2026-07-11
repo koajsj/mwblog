@@ -83,8 +83,8 @@ const deleted = Astro.url.searchParams.get("deleted");
               <span class="place-card__land"></span>
             </div>
               <div class="place-card__content">
-              <h3 class="place-card__name" data-private-text={place.name} data-private-fallback="Locked place"></h3>
-              <p class="place-card__note" data-private-text={place.note} data-private-fallback="Unlock to view the note."></p>
+              <h3 class="place-card__name" data-private-text={place.name} data-private-context="place.name" data-private-fallback="Locked place"></h3>
+              <p class="place-card__note" data-private-text={place.note} data-private-context="place.note" data-private-fallback="Unlock to view the note."></p>
               <div class="place-card__meta">
                 <small>Added by {authorDisplayName(place.profiles, author)}</small>
                 {isOwner && (
@@ -136,7 +136,7 @@ const deleted = Astro.url.searchParams.get("deleted");
             var submit = form.querySelector('button[type="submit"]');
             if (submit && submit.disabled) return;
             if (submit) submit.disabled = true;
-            window.OurNestPrivate.encryptFormFields(form, ["name", "note"]).then(function () {
+            window.OurNestPrivate.encryptFormFields(form, { name: "place.name", note: "place.note" }).then(function () {
               form.submit();
             }).catch(function () {
               if (submit) {

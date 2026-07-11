@@ -27,12 +27,12 @@ function privateSpaceApi() {
   return (window as any).OurNestPrivate || null;
 }
 
-async function encryptPrivateTextValue(value: string) {
+async function encryptPrivateTextValue(value: string, context = "todo.title") {
   const api = privateSpaceApi();
   if (!api?.encryptText) {
     throw new Error("Private-space encryption is not ready.");
   }
-  return api.encryptText(value);
+  return api.encryptText(value, context);
 }
 
 async function decryptTodoRows(rows: TodoItem[]) {
@@ -40,7 +40,7 @@ async function decryptTodoRows(rows: TodoItem[]) {
   if (!api?.decryptText) return rows;
   return Promise.all(rows.map(async (todo) => {
     try {
-      return { ...todo, title: await api.decryptText(todo.title) };
+      return { ...todo, title: await api.decryptText(todo.title, "todo.title") };
     } catch {
       return { ...todo, title: "[Encrypted content unavailable]" };
     }
@@ -352,7 +352,7 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
           start_time: normalizedRanges[0].start_time,
           end_time: normalizedRanges[0].end_time,
           ranges: JSON.stringify(normalizedRanges),
-          activity_body: await encryptPrivateTextValue(todo?.title || "Completed task"),
+          activity_body: await encryptPrivateTextValue(todo?.title || "Completed task", "activity.body"),
         });
       }
       setCompletionIds([]);

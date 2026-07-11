@@ -12,7 +12,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const id = String(form.get("id") || "").trim();
   let title = "";
   try {
-    title = readEncryptedText(form.get("title"), { maxLength: 4096 });
+    title = readEncryptedText(form.get("title"), { maxLength: 4096, context: "todo.title" });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Invalid task content." }, 400);
   }

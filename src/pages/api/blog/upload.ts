@@ -1,6 +1,5 @@
 import type { APIRoute } from "astro";
 import { isOwnedStoragePath, storageSafeName } from "../../../lib/files";
-import { parseTagList, slugify } from "../../../lib/markdown";
 import { ensureStorageBuckets } from "../../../lib/storage";
 import { safeLocalRedirect } from "../../../lib/redirect";
 import { readEncryptedText } from "../../../lib/private-payload";
@@ -14,7 +13,7 @@ function mergeTags(...groups: string[][]) {
     const key = clean.toLowerCase();
     if (!clean || seen.has(key)) return;
     seen.add(key);
-    tags.push(clean.slice(0, 32));
+    tags.push(clean.slice(0, 4096));
   });
   return tags.slice(0, 12);
 }
@@ -25,29 +24,31 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
 
   const payload = await request.json().catch(() => null);
   const manualSlug = String(payload?.slug || "").trim().slice(0, 180);
-  const manualTags = parseTagList(String(payload?.tags || "").slice(0, 4096));
   const rawReturn = String(payload?.return_to || "").trim();
   const safeReturn = safeLocalRedirect(rawReturn, "/blog");
   const sep = safeReturn.includes("?") ? "&" : "?";
-  const fallbackTitle = String(payload?.filename || "post").slice(0, 180).replace(/\.(md|markdown)$/i, "") || "post";
   let title = "";
   let excerpt = "";
   let content = "";
   try {
-    title = readEncryptedText(payload?.title, { maxLength: 4096 });
-    excerpt = readEncryptedText(payload?.excerpt, { maxLength: 4096 });
-    content = readEncryptedText(payload?.content_markdown, { maxLength: 2000000 });
+    title = readEncryptedText(payload?.title, { maxLength: 4096, context: "blog.title" });
+    excerpt = readEncryptedText(payload?.excerpt, { maxLength: 4096, context: "blog.excerpt" });
+    content = readEncryptedText(payload?.content_markdown, { maxLength: 2000000, context: "blog.content" });
   } catch (error) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(error instanceof Error ? error.message : "Invalid encrypted blog content.")}`, 303);
   }
 
-  const tags = mergeTags(
-    Array.isArray(payload?.parsed_tags)
-      ? payload.parsed_tags.slice(0, 50).map((item: unknown) => String(item || "").slice(0, 128))
-      : [],
-    manualTags,
-  );
-  const slug = slugify(manualSlug || fallbackTitle).slice(0, 120);
+  let tags: string[] = [];
+  try {
+    tags = mergeTags(Array.isArray(payload?.tags) ? payload.tags : [])
+      .map((tag) => readEncryptedText(tag, { maxLength: 4096, context: "blog.tag" }));
+  } catch (error) {
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(error instanceof Error ? error.message : "Invalid encrypted tags.")}`, 303);
+  }
+  // User-supplied slugs remain supported for editing old posts. New posts use
+  // an opaque identifier so titles and filenames are not exposed in URLs.
+  const requestedSlug = /^[a-z0-9][a-z0-9-]{0,119}$/i.test(manualSlug) ? manualSlug : "";
+  const slug = requestedSlug || crypto.randomUUID();
   const supabase = createLocalsClient(locals);
   const storage = createServiceClient().storage.from("blog-markdown");
   const storageName = storageSafeName(slug, "post");

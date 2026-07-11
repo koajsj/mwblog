@@ -3,9 +3,11 @@ import { createDecipheriv, createHash, webcrypto } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const TEXT_PREFIX = "enc:wc1:";
+const TEXT_PREFIX = "enc:wc2:";
+const PREVIOUS_TEXT_PREFIX = "enc:wc1:";
 const LEGACY_TEXT_PREFIX = "enc:v1:";
-const FILE_PREFIX = "MWBLOG-WC1 ";
+const FILE_PREFIX = "MWBLOG-WC2 ";
+const PREVIOUS_FILE_PREFIX = "MWBLOG-WC1 ";
 const LEGACY_FILE_PREFIX = "MWBLOG_FILE_V1 ";
 const PRIVATE_SPACE_ID = "private-couple-space";
 
@@ -33,6 +35,8 @@ const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const appKeyRaw = process.env.APP_ENCRYPTION_KEY || "";
 const passphrase = process.env.SPACE_PASSPHRASE || "";
 const recoveryCode = process.env.SPACE_RECOVERY_CODE || "";
+const newPassphrase = process.env.SPACE_NEW_PASSPHRASE || "";
+const newRecoveryCode = process.env.SPACE_NEW_RECOVERY_CODE || recoveryCode;
 
 if (appKeyRaw && process.env.ALLOW_LEGACY_SERVER_DECRYPTION !== "1") {
   console.error("APP_ENCRYPTION_KEY enables legacy server-side decryption.");
@@ -109,15 +113,23 @@ function bundleIterations(bundle) {
   return iterations;
 }
 
-async function deriveWrappingKey(secret, salt, iterations) {
+async function deriveWrappingKey(secret, salt, iterations, usages = ["decrypt"]) {
   const baseKey = await subtle.importKey("raw", encoder.encode(secret), "PBKDF2", false, ["deriveKey"]);
   return subtle.deriveKey(
     { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
     baseKey,
     { name: "AES-GCM", length: 256 },
     false,
-    ["decrypt"],
+    usages,
   );
+}
+
+async function wrapSpaceKey(rawKey, secret, iterations) {
+  const salt = webcrypto.getRandomValues(new Uint8Array(16));
+  const iv = webcrypto.getRandomValues(new Uint8Array(12));
+  const wrappingKey = await deriveWrappingKey(secret, salt, iterations, ["encrypt"]);
+  const data = await subtle.encrypt({ name: "AES-GCM", iv }, wrappingKey, rawKey);
+  return { salt: b64urlEncode(salt), iv: b64urlEncode(iv), data: b64urlEncode(new Uint8Array(data)) };
 }
 
 async function unwrapSpaceKey(bundle) {
@@ -133,43 +145,72 @@ async function unwrapSpaceKey(bundle) {
 }
 
 async function importSpaceKey(rawKey) {
-  return subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["encrypt"]);
+  return subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
-async function encryptText(value, key) {
+function additionalData(context) {
+  return encoder.encode(`mwblog:wc2:${context}`);
+}
+
+async function decryptPreviousText(value, key) {
+  const payload = JSON.parse(decoder.decode(b64urlDecode(String(value).slice(PREVIOUS_TEXT_PREFIX.length))));
+  const plain = await subtle.decrypt(
+    { name: "AES-GCM", iv: b64urlDecode(payload.iv) },
+    key,
+    b64urlDecode(payload.data),
+  );
+  return decoder.decode(plain);
+}
+
+async function encryptText(value, key, context) {
   if (!value) return "";
   if (String(value).startsWith(TEXT_PREFIX)) return String(value);
   const iv = webcrypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode(String(value)));
+  const ciphertext = await subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: additionalData(context) },
+    key,
+    encoder.encode(String(value)),
+  );
   return `${TEXT_PREFIX}${b64urlEncode(encoder.encode(JSON.stringify({
     iv: b64urlEncode(iv),
     data: b64urlEncode(new Uint8Array(ciphertext)),
+    context,
   })))}`;
 }
 
 async function encryptFile(buffer, mimeType, key) {
   if (buffer.subarray(0, FILE_PREFIX.length).equals(Buffer.from(FILE_PREFIX, "utf8"))) return buffer;
   const iv = webcrypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await subtle.encrypt({ name: "AES-GCM", iv }, key, buffer);
+  const ciphertext = await subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: additionalData("photo.file") },
+    key,
+    buffer,
+  );
   const header = Buffer.from(`${FILE_PREFIX}${JSON.stringify({
     iv: b64urlEncode(iv),
     tag: "packed",
     mimeType: mimeType || "application/octet-stream",
+    context: "photo.file",
   })}\n`, "utf8");
   return Buffer.concat([header, Buffer.from(ciphertext)]);
 }
 
 async function migrateTable(table, fields, key, legacyKey) {
-  const { data, error } = await supabase.from(table).select(["id", ...fields].join(","));
+  const fieldNames = Object.keys(fields);
+  const { data, error } = await supabase.from(table).select(["id", ...fieldNames].join(","));
   if (error) throw error;
   let changed = 0;
   for (const row of data || []) {
     const patch = {};
-    for (const field of fields) {
+    for (const field of fieldNames) {
       const current = row[field];
       if (!current || String(current).startsWith(TEXT_PREFIX)) continue;
-      const plain = String(current).startsWith(LEGACY_TEXT_PREFIX) ? decryptLegacyText(current, legacyKey) : String(current);
-      patch[field] = await encryptText(plain, key);
+      const plain = String(current).startsWith(PREVIOUS_TEXT_PREFIX)
+        ? await decryptPreviousText(current, key)
+        : String(current).startsWith(LEGACY_TEXT_PREFIX)
+          ? decryptLegacyText(current, legacyKey)
+          : String(current);
+      patch[field] = await encryptText(plain, key, fields[field]);
     }
     if (!Object.keys(patch).length) continue;
     const { error: updateError } = await supabase.from(table).update(patch).eq("id", row.id);
@@ -179,16 +220,38 @@ async function migrateTable(table, fields, key, legacyKey) {
   console.log(`${table}: migrated ${changed} rows`);
 }
 
+async function migrateBlogTags(key) {
+  const { data, error } = await supabase.from("blog_posts").select("id,tags");
+  if (error) throw error;
+  let changed = 0;
+  for (const row of data || []) {
+    const tags = Array.isArray(row.tags) ? row.tags : [];
+    if (!tags.some((tag) => tag && !String(tag).startsWith(TEXT_PREFIX))) continue;
+    const encrypted = [];
+    for (const tag of tags) {
+      const plain = String(tag).startsWith(PREVIOUS_TEXT_PREFIX) ? await decryptPreviousText(tag, key) : String(tag);
+      encrypted.push(await encryptText(plain, key, "blog.tag"));
+    }
+    const { error: updateError } = await supabase.from("blog_posts").update({ tags: encrypted }).eq("id", row.id);
+    if (updateError) throw updateError;
+    changed += 1;
+  }
+  console.log(`blog_posts tags: migrated ${changed} rows`);
+}
+
 async function migrateBlogStorage(key, legacyKey) {
   const { data, error } = await supabase.from("blog_posts").select("id,storage_path,content_markdown");
   if (error) throw error;
   let changed = 0;
   for (const post of data || []) {
     if (!post.storage_path) continue;
-    const plain = String(post.content_markdown || "").startsWith(LEGACY_TEXT_PREFIX)
-      ? decryptLegacyText(post.content_markdown, legacyKey)
-      : String(post.content_markdown || "");
-    const encrypted = await encryptText(plain, key);
+    const value = String(post.content_markdown || "");
+    const plain = value.startsWith(PREVIOUS_TEXT_PREFIX)
+      ? await decryptPreviousText(value, key)
+      : value.startsWith(LEGACY_TEXT_PREFIX)
+        ? decryptLegacyText(value, legacyKey)
+        : value;
+    const encrypted = await encryptText(plain, key, "blog.content");
     const { error: uploadError } = await supabase.storage.from("blog-markdown").upload(post.storage_path, new Blob([encrypted]), {
       contentType: "text/plain; charset=utf-8",
       upsert: true,
@@ -209,9 +272,21 @@ async function migratePhotos(key, legacyKey) {
     if (downloadError || !file) throw downloadError || new Error(`Missing photo file ${photo.storage_path}`);
     const original = Buffer.from(await file.arrayBuffer());
     if (original.subarray(0, FILE_PREFIX.length).equals(Buffer.from(FILE_PREFIX, "utf8"))) continue;
-    const plain = original.subarray(0, LEGACY_FILE_PREFIX.length).equals(Buffer.from(LEGACY_FILE_PREFIX, "utf8"))
-      ? decryptLegacyFile(original, legacyKey)
-      : { bytes: original, mimeType: String(photo.mime_type || file.type || "application/octet-stream") };
+    let plain;
+    if (original.subarray(0, PREVIOUS_FILE_PREFIX.length).equals(Buffer.from(PREVIOUS_FILE_PREFIX, "utf8"))) {
+      const newline = original.indexOf(10);
+      const header = JSON.parse(original.subarray(PREVIOUS_FILE_PREFIX.length, newline).toString("utf8"));
+      const decrypted = await subtle.decrypt(
+        { name: "AES-GCM", iv: b64urlDecode(header.iv) },
+        key,
+        original.subarray(newline + 1),
+      );
+      plain = { bytes: Buffer.from(decrypted), mimeType: String(header.mimeType || photo.mime_type || "application/octet-stream") };
+    } else {
+      plain = original.subarray(0, LEGACY_FILE_PREFIX.length).equals(Buffer.from(LEGACY_FILE_PREFIX, "utf8"))
+        ? decryptLegacyFile(original, legacyKey)
+        : { bytes: original, mimeType: String(photo.mime_type || file.type || "application/octet-stream") };
+    }
     const encrypted = await encryptFile(plain.bytes, plain.mimeType, key);
     const { error: uploadError } = await supabase.storage.from("photos").upload(photo.storage_path, encrypted, {
       contentType: "application/octet-stream",
@@ -221,6 +296,74 @@ async function migratePhotos(key, legacyKey) {
     changed += 1;
   }
   console.log(`photos storage: migrated ${changed} files`);
+}
+
+async function verifyEncryptedText(value, key, context) {
+  if (!String(value || "").startsWith(TEXT_PREFIX)) return false;
+  try {
+    const payload = JSON.parse(decoder.decode(b64urlDecode(String(value).slice(TEXT_PREFIX.length))));
+    if (payload.context !== context) return false;
+    await subtle.decrypt(
+      { name: "AES-GCM", iv: b64urlDecode(payload.iv), additionalData: additionalData(context) },
+      key,
+      b64urlDecode(payload.data),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function verifyTable(table, fields, key) {
+  const fieldNames = Object.keys(fields);
+  const { data, error } = await supabase.from(table).select(["id", ...fieldNames].join(","));
+  if (error) throw error;
+  for (const row of data || []) {
+    for (const field of fieldNames) {
+      const value = row[field];
+      if (value === null || value === "") continue;
+      const values = Array.isArray(value) ? value : [value];
+      for (const item of values) {
+        if (!(await verifyEncryptedText(item, key, fields[field]))) {
+          throw new Error(`${table}.${field} still contains invalid or legacy data (row ${row.id}).`);
+        }
+      }
+    }
+  }
+}
+
+async function verifyStorage(key) {
+  const { data: posts, error: postError } = await supabase.from("blog_posts").select("id,storage_path");
+  if (postError) throw postError;
+  for (const post of posts || []) {
+    if (!post.storage_path) continue;
+    const { data, error } = await supabase.storage.from("blog-markdown").download(post.storage_path);
+    if (error || !data) throw error || new Error(`Missing blog file ${post.storage_path}`);
+    const value = await data.text();
+    if (!(await verifyEncryptedText(value, key, "blog.content"))) {
+      throw new Error(`Blog storage still contains invalid or legacy data (row ${post.id}).`);
+    }
+  }
+
+  const { data: photos, error: photoError } = await supabase.from("photos").select("id,storage_path");
+  if (photoError) throw photoError;
+  for (const photo of photos || []) {
+    if (!photo.storage_path) continue;
+    const { data, error } = await supabase.storage.from("photos").download(photo.storage_path);
+    if (error || !data) throw error || new Error(`Missing photo file ${photo.storage_path}`);
+    const bytes = Buffer.from(await data.arrayBuffer());
+    if (!bytes.subarray(0, FILE_PREFIX.length).equals(Buffer.from(FILE_PREFIX, "utf8"))) {
+      throw new Error(`Photo storage still contains plaintext or legacy data (row ${photo.id}).`);
+    }
+    const newline = bytes.indexOf(10);
+    const header = JSON.parse(bytes.subarray(FILE_PREFIX.length, newline).toString("utf8"));
+    if (header.context !== "photo.file") throw new Error(`Photo context is invalid (row ${photo.id}).`);
+    await subtle.decrypt(
+      { name: "AES-GCM", iv: b64urlDecode(header.iv), additionalData: additionalData("photo.file") },
+      key,
+      bytes.subarray(newline + 1),
+    );
+  }
 }
 
 const { data: bundleRow, error: bundleError } = await supabase
@@ -242,15 +385,50 @@ const legacyKey = decodeLegacyKey(appKeyRaw);
 const rawSpaceKey = await unwrapSpaceKey(bundleRow.bundle);
 const clientKey = await importSpaceKey(rawSpaceKey);
 
-await migrateTable("blog_posts", ["title", "excerpt", "content_markdown"], clientKey, legacyKey);
-await migrateTable("life_records", ["body"], clientKey, legacyKey);
-await migrateTable("comments", ["body"], clientKey, legacyKey);
-await migrateTable("todos", ["title"], clientKey, legacyKey);
-await migrateTable("photos", ["title", "caption"], clientKey, legacyKey);
-await migrateTable("places", ["name", "note"], clientKey, legacyKey);
-await migrateTable("profiles", ["weather_text", "mood_text", "doing_text"], clientKey, legacyKey);
-await migrateTable("activity_entries", ["body"], clientKey, legacyKey);
+await migrateTable("blog_posts", { title: "blog.title", excerpt: "blog.excerpt", content_markdown: "blog.content" }, clientKey, legacyKey);
+await migrateBlogTags(clientKey);
+await migrateTable("life_records", { body: "record.body" }, clientKey, legacyKey);
+await migrateTable("comments", { body: "comment.body" }, clientKey, legacyKey);
+await migrateTable("todos", { title: "todo.title" }, clientKey, legacyKey);
+await migrateTable("photos", { title: "photo.title", caption: "photo.caption" }, clientKey, legacyKey);
+await migrateTable("places", { name: "place.name", note: "place.note" }, clientKey, legacyKey);
+await migrateTable("profiles", { weather_text: "profile.weather", mood_text: "profile.mood", doing_text: "profile.doing" }, clientKey, legacyKey);
+await migrateTable("activity_entries", { body: "activity.body" }, clientKey, legacyKey);
 await migrateBlogStorage(clientKey, legacyKey);
 await migratePhotos(clientKey, legacyKey);
 
-console.log("Client-side encryption migration complete.");
+await verifyTable("blog_posts", { title: "blog.title", excerpt: "blog.excerpt", content_markdown: "blog.content", tags: "blog.tag" }, clientKey);
+await verifyTable("life_records", { body: "record.body" }, clientKey);
+await verifyTable("comments", { body: "comment.body" }, clientKey);
+await verifyTable("todos", { title: "todo.title" }, clientKey);
+await verifyTable("photos", { title: "photo.title", caption: "photo.caption" }, clientKey);
+await verifyTable("places", { name: "place.name", note: "place.note" }, clientKey);
+await verifyTable("profiles", { weather_text: "profile.weather", mood_text: "profile.mood", doing_text: "profile.doing" }, clientKey);
+await verifyTable("activity_entries", { body: "activity.body" }, clientKey);
+await verifyStorage(clientKey);
+
+let finalBundle = bundleRow.bundle;
+if (bundleIterations(finalBundle) < 600000) {
+  if (newPassphrase.length < 14 || newRecoveryCode.length < 20) {
+    throw new Error("Set SPACE_NEW_PASSPHRASE (14+ characters) and a valid SPACE_RECOVERY_CODE or SPACE_NEW_RECOVERY_CODE to upgrade the legacy key bundle.");
+  }
+  const iterations = 600000;
+  finalBundle = {
+    ...finalBundle,
+    kdf: { name: "PBKDF2", hash: "SHA-256", iterations },
+    passphrase: await wrapSpaceKey(rawSpaceKey, newPassphrase, iterations),
+    recovery: await wrapSpaceKey(rawSpaceKey, newRecoveryCode, iterations),
+  };
+  const { error: bundleUpdateError } = await supabase
+    .from("private_space_keys")
+    .update({ bundle: finalBundle, updated_at: new Date().toISOString() })
+    .eq("space_id", PRIVATE_SPACE_ID);
+  if (bundleUpdateError) throw bundleUpdateError;
+}
+
+const { error: stateError } = await supabase
+  .from("private_security_state")
+  .upsert({ space_id: PRIVATE_SPACE_ID, version: 23, verified_at: new Date().toISOString() });
+if (stateError) throw stateError;
+
+console.log("Client-side encryption migration and verification complete.");

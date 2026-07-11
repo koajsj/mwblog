@@ -71,10 +71,10 @@ const commentError = Astro.url.searchParams.get("error");
           <span class={`blog-tag blog-tag--${author}`}>{authorName}</span>
           <span class="blog-tag">{formatDate(dateValue)}</span>
           <span class="blog-tag" id="blogReadMinutes">Locked</span>
-          {(post.tags || []).map((tag) => <span class="blog-tag">{tag}</span>)}
+          {(post.tags || []).map((tag) => <span class="blog-tag" data-private-tag={tag}>Private tag</span>)}
         </div>
-        <h1 id="blogTitle" data-private-text={post.title} data-private-fallback="Private post"></h1>
-        <p class="article-summary" id="blogExcerpt" data-private-text={post.excerpt || ""} data-private-fallback=""></p>
+        <h1 id="blogTitle" data-private-text={post.title} data-private-context="blog.title" data-private-fallback="Private post"></h1>
+        <p class="article-summary" id="blogExcerpt" data-private-text={post.excerpt || ""} data-private-context="blog.excerpt" data-private-fallback=""></p>
       </header>
 
       <div id="blogArticle" data-private-markdown={post.content_markdown}></div>
@@ -98,7 +98,7 @@ const commentError = Astro.url.searchParams.get("error");
                     <span class="cmt-meta__time">{formatCommentTime(c.created_at)}</span>
                   </div>
                   <div class="cmt-bubble">
-                    <span data-private-text={c.body} data-private-fallback="Unlock to read this comment."></span>
+                    <span data-private-text={c.body} data-private-context="comment.body" data-private-fallback="Unlock to read this comment."></span>
                     {user?.id === c.author_id && (
                       <span class="cmt-bubble__delete">
                         <form action="/api/comments/delete" method="post" data-confirm="Delete this comment?" data-confirm-title="Delete comment?">
@@ -159,9 +159,12 @@ const commentError = Astro.url.searchParams.get("error");
       privateSpace?.ready?.().then(async () => {
         await privateSpace.decryptTextNodes(document.querySelector(".article-head") || document);
         await privateSpace.decryptTextNodes(document.getElementById("comments") || document);
+        await Promise.all(Array.from(document.querySelectorAll<HTMLElement>("[data-private-tag]")).map(async (node) => {
+          node.textContent = await privateSpace.decryptText(node.dataset.privateTag || "", "blog.tag");
+        }));
         if (!article) return;
         const encrypted = article.getAttribute("data-private-markdown") || "";
-        const markdown = await privateSpace.decryptText(encrypted);
+        const markdown = await privateSpace.decryptText(encrypted, "blog.content");
         const sections = renderArticleSections(markdown || "");
         const fragment = document.createDocumentFragment();
         sections.forEach((section) => {
@@ -182,10 +185,10 @@ const commentError = Astro.url.searchParams.get("error");
         article.replaceChildren(fragment);
         window.dispatchEvent(new CustomEvent("blog:content-ready"));
         if (title && !title.textContent?.trim()) {
-          title.textContent = markdownToPlainText(await privateSpace.decryptText(title.getAttribute("data-private-text") || "")) || firstMarkdownHeading(markdown || "") || "Private post";
+          title.textContent = markdownToPlainText(await privateSpace.decryptText(title.getAttribute("data-private-text") || "", "blog.title")) || firstMarkdownHeading(markdown || "") || "Private post";
         }
         if (excerpt) {
-          const decryptedExcerpt = await privateSpace.decryptText(excerpt.getAttribute("data-private-text") || "");
+          const decryptedExcerpt = await privateSpace.decryptText(excerpt.getAttribute("data-private-text") || "", "blog.excerpt");
           excerpt.textContent = decryptedExcerpt ? markdownToPlainText(decryptedExcerpt) : "";
           excerpt.style.display = excerpt.textContent ? "" : "none";
         }
@@ -206,7 +209,7 @@ const commentError = Astro.url.searchParams.get("error");
             }
             if (submit && submit.disabled) return;
             if (submit) submit.disabled = true;
-            privateSpace.encryptFormFields(form, ["body"]).then(function () {
+            privateSpace.encryptFormFields(form, { body: "comment.body" }).then(function () {
               form.submit();
             }).catch(function () {
               if (submit) {

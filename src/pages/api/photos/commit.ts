@@ -23,8 +23,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   let title: string | null = null;
   let caption: string | null = null;
   try {
-    title = readNullableEncryptedText(payload?.title, { maxLength: 4096 });
-    caption = readNullableEncryptedText(payload?.caption, { maxLength: 4096 });
+    title = readNullableEncryptedText(payload?.title, { maxLength: 4096, context: "photo.title" });
+    caption = readNullableEncryptedText(payload?.caption, { maxLength: 4096, context: "photo.caption" });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Invalid encrypted photo text." }, 400);
   }
