@@ -9,6 +9,7 @@
   var LEGACY_FILE_PREFIX = "MWBLOG_FILE_V1 ";
   var RAW_KEY_SESSION = "ournest.private.raw.v1";
   var BUNDLE_SESSION = "ournest.private.bundle.v1";
+  var CLEAR_SIGNAL_KEY = "ournest.private.clear.v1";
   var READY_EVENT = "ournest-private-ready";
   var FAILED_EVENT = "ournest-private-failed";
   var PBKDF2_ITERATIONS = 310000;
@@ -24,6 +25,7 @@
   var keyPromise = null;
   var readyDispatched = false;
   var photoCache = new Map();
+  var photoObjectUrls = new Set();
   var textEncoder = new TextEncoder();
   var textDecoder = new TextDecoder();
 
@@ -174,6 +176,7 @@
     if (bundleCache) return Promise.resolve(bundleCache);
     return fetch("/api/private-space/key-bundle", { credentials: "same-origin" })
       .then(function (response) {
+        if (response.status === 401 || response.status === 403) clearAfterSessionLoss();
         if (!response.ok) throw new Error("Could not load the private-space key bundle.");
         return response.json();
       })
@@ -190,6 +193,7 @@
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ bundle: bundle }),
     }).then(function (response) {
+      if (response.status === 401 || response.status === 403) clearAfterSessionLoss();
       return response.json().catch(function () { return {}; }).then(function (data) {
         if (!response.ok) {
           if (response.status === 409) {
@@ -338,12 +342,32 @@
     if (gate) gate.classList.add("is-hidden");
   }
 
-  function clearPrivateState() {
+  function broadcastPrivateClear() {
+    try {
+      localStorage.setItem(CLEAR_SIGNAL_KEY, String(Date.now()) + ":" + Math.random().toString(36).slice(2));
+    } catch (error) {}
+  }
+
+  function clearPrivateState(shouldBroadcast) {
     clearStoredRawKey();
     bundleCache = null;
     keyPromise = null;
+    readyDispatched = false;
+    photoObjectUrls.forEach(function (url) {
+      URL.revokeObjectURL(url);
+    });
+    photoObjectUrls.clear();
     photoCache.clear();
     document.documentElement.removeAttribute("data-private-ready");
+    if (shouldBroadcast !== false) broadcastPrivateClear();
+  }
+
+  function clearAfterSessionLoss(shouldBroadcast) {
+    clearPrivateState(shouldBroadcast);
+    if (window.location.pathname !== "/auth/login") {
+      var returnTo = window.location.pathname + window.location.search + window.location.hash;
+      window.location.replace("/auth/login?redirect=" + encodeURIComponent(returnTo));
+    }
   }
 
   function logoutNow() {
@@ -357,7 +381,21 @@
   }
 
   function generateRecoveryCode() {
-    var raw = b64urlEncode(randomBytes(24)).toUpperCase().replace(/[^A-Z2-7_-]/g, "").slice(0, 32);
+    var alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    var bytes = randomBytes(20);
+    var raw = "";
+    var buffer = 0;
+    var bits = 0;
+    for (var byteIndex = 0; byteIndex < bytes.length; byteIndex += 1) {
+      buffer = (buffer << 8) | bytes[byteIndex];
+      bits += 8;
+      while (bits >= 5) {
+        bits -= 5;
+        raw += alphabet[(buffer >>> bits) & 31];
+        buffer &= (1 << bits) - 1;
+      }
+    }
+    if (bits > 0) raw += alphabet[(buffer << (5 - bits)) & 31];
     var groups = [];
     for (var i = 0; i < raw.length; i += 4) groups.push(raw.slice(i, i + 4));
     return groups.join("-");
@@ -535,6 +573,7 @@
         }
         return showUnlock();
       }).catch(function (error) {
+        keyPromise = null;
         markFailure(error);
         throw error;
       });
@@ -566,7 +605,15 @@
       return Promise.resolve(text);
     }
     return ensureReady().then(function (key) {
-      var payload = JSON.parse(textDecoder.decode(b64urlDecode(text.slice(TEXT_PREFIX.length))));
+      var payload;
+      try {
+        payload = JSON.parse(textDecoder.decode(b64urlDecode(text.slice(TEXT_PREFIX.length))));
+        if (!payload || typeof payload.iv !== "string" || typeof payload.data !== "string") {
+          throw new Error("invalid payload");
+        }
+      } catch (error) {
+        return "[Encrypted content unavailable]";
+      }
       return crypto.subtle.decrypt(
         { name: "AES-GCM", iv: b64urlDecode(payload.iv) },
         key,
@@ -646,6 +693,7 @@
     if (photoCache.has(key)) return photoCache.get(key);
     var promise = fetch(key, { credentials: "same-origin" })
       .then(function (response) {
+        if (response.status === 401 || response.status === 403) clearAfterSessionLoss();
         if (!response.ok) throw new Error("Could not load the encrypted photo.");
         return response.arrayBuffer();
       })
@@ -653,7 +701,9 @@
         return decryptFileBuffer(buffer, "application/octet-stream");
       })
       .then(function (file) {
-        return URL.createObjectURL(new Blob([file.bytes], { type: file.mimeType || "application/octet-stream" }));
+        var objectUrl = URL.createObjectURL(new Blob([file.bytes], { type: file.mimeType || "application/octet-stream" }));
+        photoObjectUrls.add(objectUrl);
+        return objectUrl;
       })
       .catch(function (error) {
         photoCache.delete(key);
@@ -759,6 +809,10 @@
     var form = event.target;
     if (form && form.matches && form.matches('form[action="/api/auth/logout"]')) clearPrivateState();
   }, true);
+
+  window.addEventListener("storage", function (event) {
+    if (event.key === CLEAR_SIGNAL_KEY && event.newValue) clearAfterSessionLoss(false);
+  });
 
   ensureReady().then(function () {
     markReady(bundleCache);

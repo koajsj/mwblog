@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
 import { safeLocalRedirect } from "../../../lib/redirect";
 import { readEncryptedText } from "../../../lib/private-payload";
+import { isUuid } from "../../../lib/security";
 import { createLocalsClient } from "../../../lib/supabase";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
@@ -26,7 +27,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   if (targetType !== "blog" && targetType !== "record") {
     return errorRedirect("Invalid comment target.");
   }
-  if (!targetId) {
+  if (!isUuid(targetId)) {
     return errorRedirect("Missing comment target id.");
   }
   if (!body) {
@@ -38,7 +39,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     ? supabase.from("blog_posts").select("id").eq("id", targetId)
     : supabase.from("life_records").select("id").eq("id", targetId);
   const { data: target, error: targetError } = await targetQuery.maybeSingle();
-  if (targetError) return errorRedirect(targetError.message);
+  if (targetError) return errorRedirect("Could not verify the comment target.");
   if (!target) return errorRedirect("Comment target not found.");
 
   const { error } = await supabase.from("comments").insert({
@@ -47,7 +48,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     author_id: user.id,
     body,
   });
-  if (error) return errorRedirect(error.message);
+  if (error) return errorRedirect("Could not save the comment.");
 
   // 评论提交后回到原页面，并加上锚点滚到对应区域
   const anchor = targetType === "record" ? `#rc-${targetId}` : "#comments";

@@ -1,10 +1,12 @@
 import type { APIRoute } from "astro";
-import { isAllowedImageType } from "../../../lib/files";
+import { isIsoCalendarDate } from "../../../lib/datetime";
+import { isAllowedImageType, isOwnedStoragePath } from "../../../lib/files";
 import { readEncryptedText } from "../../../lib/private-payload";
 import { removeStoragePaths, storageObjectExists } from "../../../lib/storage";
 import { createLocalsClient } from "../../../lib/supabase";
 
 const validMoods = new Set(["happy", "loved", "calm", "tired", "down", "moody"]);
+const MAX_RECORD_PHOTOS = 12;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -30,7 +32,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
   const photos = Array.isArray(payload?.photos) ? payload.photos : [];
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(recordOn)) {
+  if (!isIsoCalendarDate(recordOn)) {
     return json({ error: "Please choose a life record date." }, 400);
   }
   if (!body) {
@@ -39,14 +41,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!validMoods.has(mood)) {
     return json({ error: "Please choose a valid mood." }, 400);
   }
+  if (photos.length > MAX_RECORD_PHOTOS) {
+    return json({ error: `Please keep each record to ${MAX_RECORD_PHOTOS} photos or fewer.` }, 400);
+  }
 
   const supabase = createLocalsClient(locals);
   const validPhotos: Array<{ path: string; mimeType: string }> = [];
   for (const item of photos) {
     const path = String(item?.path || "").trim();
     const mimeType = String(item?.mime_type || "").trim();
-    if (!path || !path.startsWith(`${user.id}/`)) continue;
-    if (mimeType && !isAllowedImageType(mimeType)) continue;
+    if (!isOwnedStoragePath(path, user.id)) continue;
+    if (!isAllowedImageType(mimeType)) continue;
     if (!(await storageObjectExists(supabase, "photos", path))) continue;
     validPhotos.push({ path, mimeType });
   }
@@ -68,7 +73,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   if (insertError) {
     await removeStoragePaths(supabase, "photos", validPhotos.map((photo) => photo.path));
-    return json({ error: insertError.message }, 500);
+    return json({ error: "Could not save the life record." }, 500);
   }
 
   const insertedPhotoPaths: string[] = [];
@@ -86,7 +91,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       await supabase.from("photos").delete().in("storage_path", insertedPhotoPaths);
       if (record?.id) await supabase.from("life_records").delete().eq("id", record.id);
       await removeStoragePaths(supabase, "photos", validPhotos.map((photo) => photo.path));
-      return json({ error: photoError.message }, 500);
+      return json({ error: "Could not attach the encrypted photos to this record." }, 500);
     }
     insertedPhotoPaths.push(item.path);
   }

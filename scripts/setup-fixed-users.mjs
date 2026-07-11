@@ -6,6 +6,7 @@ const accounts = [
   { account: "mm", email: "mm@our-nest.local", password: "qwerasdf", author_key: "white", display_name: "mm" },
   { account: "ww", email: "ww@our-nest.local", password: "qwerasdf", author_key: "brown", display_name: "ww" },
 ];
+const resetExistingPasswords = process.env.RESET_FIXED_USER_PASSWORDS === "1";
 
 function loadDotEnv() {
   const envPath = resolve(process.cwd(), ".env");
@@ -65,14 +66,16 @@ for (const account of accounts) {
     if (error) throw error;
     user = data.user;
   } else {
-    const { data, error } = await supabase.auth.admin.updateUserById(user.id, {
-      password: account.password,
+    const updates = {
       user_metadata: {
         account: account.account,
         author_key: account.author_key,
         display_name: account.display_name,
       },
-    });
+    };
+    if (resetExistingPasswords) updates.password = account.password;
+
+    const { data, error } = await supabase.auth.admin.updateUserById(user.id, updates);
     if (error) throw error;
     user = data.user;
   }
@@ -89,4 +92,8 @@ for (const account of accounts) {
   if (profileError) throw profileError;
 
   console.log(`Ready: ${account.account}`);
+}
+
+if (resetExistingPasswords) {
+  console.warn("Existing fixed-account passwords were reset because RESET_FIXED_USER_PASSWORDS=1.");
 }

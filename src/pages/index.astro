@@ -1,7 +1,8 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createLocalsClient } from "../lib/supabase";
-import { AUTHOR_LABELS, MOOD_LABELS } from "../lib/types";
+import { shanghaiDateKey } from "../lib/datetime";
+import { AUTHOR_LABELS, MOOD_LABELS, asRows } from "../lib/types";
 import type { AuthorKey, BlogPost, LifeRecord, Photo, Place, PlaceTone, Profile } from "../lib/types";
 
 const user = Astro.locals.user;
@@ -19,6 +20,7 @@ const [
   { data: firstRecordRows },
   { data: firstPostRows },
   { data: firstPhotoRows },
+  { data: profileRows },
 ] = await Promise.all([
   supabase
     .from("blog_posts")
@@ -56,17 +58,17 @@ const [
     .select("created_at,taken_on")
     .order("created_at", { ascending: true })
     .limit(1),
+  supabase
+    .from("profiles")
+    .select("id,email,author_key,display_name,weather_text,weather_updated_at,mood_text,mood_date,doing_text,doing_date,created_at")
+    .in("author_key", ["white", "brown"]),
 ]);
 const dbPlaces = (placeRows || []) as Place[];
 
-const recentPosts = (posts || []) as BlogPost[];
-const recentPhotos = (photos || []) as Photo[];
-const recentRecords = (recordRows || []) as LifeRecord[];
+const recentPosts = asRows<BlogPost>(posts);
+const recentPhotos = asRows<Photo>(photos);
+const recentRecords = asRows<LifeRecord>(recordRows);
 const displayPhotos = recentPhotos.slice(0, 5);
-const { data: profileRows } = await supabase
-  .from("profiles")
-  .select("id,email,author_key,display_name,weather_text,weather_updated_at,mood_text,mood_date,doing_text,doing_date,created_at")
-  .in("author_key", ["white", "brown"]);
 const homeProfiles = (profileRows || []) as Profile[];
 const whiteProfile = homeProfiles.find((p) => p.author_key === "white");
 const brownProfile = homeProfiles.find((p) => p.author_key === "brown");
@@ -77,11 +79,7 @@ const brownWeather = brownProfile?.weather_text || "";
 const currentWeatherWho = user ? profile?.author_key || "" : "";
 
 // mood / doing 当日才有效，过期就回到默认占位
-const todayKey = (() => {
-  const d = new Date();
-  const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-})();
+const todayKey = shanghaiDateKey();
 const todayField = (p: Profile | undefined, field: "mood" | "doing") => {
   if (!p) return "";
   const date = field === "mood" ? p.mood_date : p.doing_date;
@@ -125,19 +123,17 @@ function formatFullDate(value: string) {
 }
 
 function dayCountFrom(value: string) {
-  const start = new Date(`${value}T00:00:00`);
-  const today = new Date();
-  const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const start = new Date(`${value}T00:00:00Z`);
+  const current = new Date(`${todayKey}T00:00:00Z`);
   const delta = Math.floor((current.getTime() - start.getTime()) / 86400000);
   return Math.max(1, delta + 1);
 }
 
 function nextDateLabel(value: string) {
   const [, month, day] = value.split("-").map(Number);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  let next = new Date(today.getFullYear(), month - 1, day);
-  if (next < today) next = new Date(today.getFullYear() + 1, month - 1, day);
+  const today = new Date(`${todayKey}T00:00:00Z`);
+  let next = new Date(Date.UTC(today.getUTCFullYear(), month - 1, day));
+  if (next < today) next = new Date(Date.UTC(today.getUTCFullYear() + 1, month - 1, day));
   const days = Math.round((next.getTime() - today.getTime()) / 86400000);
   if (days === 0) return "Today";
   if (days === 1) return "Tomorrow";

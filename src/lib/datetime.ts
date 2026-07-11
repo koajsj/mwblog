@@ -31,3 +31,17 @@ export function shanghaiParts(value: string | Date): ShanghaiParts | null {
     minute: get("minute"),
   };
 }
+
+export function shanghaiDateKey(value: string | Date = new Date()) {
+  const parts = shanghaiParts(value);
+  return parts ? `${parts.year}-${parts.month}-${parts.day}` : "";
+}
+
+export function isIsoCalendarDate(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return date.getUTCFullYear() === Number(match[1])
+    && date.getUTCMonth() === Number(match[2]) - 1
+    && date.getUTCDate() === Number(match[3]);
+}

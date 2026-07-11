@@ -11,6 +11,7 @@ const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_BLOCK_MS = 15 * 60 * 1000;
 const LOGIN_MAX_FAILURES = 5;
 const LOGIN_BUCKET_TTL_MS = 24 * 60 * 60 * 1000;
+const LOGIN_BUCKET_LIMIT = 5000;
 
 function cleanupLoginBuckets(now: number) {
   loginAttempts.forEach((bucket, key) => {
@@ -21,7 +22,9 @@ function cleanupLoginBuckets(now: number) {
 }
 
 export function clientIpFromRequest(request: Request) {
-  const forwarded = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || request.headers.get("cf-connecting-ip") || "";
+  // Nginx overwrites X-Real-IP with the socket peer. X-Forwarded-For can contain
+  // caller-supplied entries, so it is only a fallback outside the VPS setup.
+  const forwarded = request.headers.get("x-real-ip") || request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "";
   const candidate = forwarded.split(",")[0]?.trim();
   return candidate || "unknown";
 }
@@ -60,6 +63,17 @@ export function recordLoginFailure(request: Request, accountName: string) {
   const current = loginAttempts.get(key);
 
   if (!current || now - current.firstFailedAt > LOGIN_WINDOW_MS) {
+    if (!current && loginAttempts.size >= LOGIN_BUCKET_LIMIT) {
+      let oldestKey = "";
+      let oldestSeen = Number.POSITIVE_INFINITY;
+      loginAttempts.forEach((bucket, bucketKey) => {
+        if (bucket.lastSeenAt < oldestSeen) {
+          oldestSeen = bucket.lastSeenAt;
+          oldestKey = bucketKey;
+        }
+      });
+      if (oldestKey) loginAttempts.delete(oldestKey);
+    }
     loginAttempts.set(key, {
       count: 1,
       firstFailedAt: now,
@@ -83,7 +97,7 @@ export function clearLoginFailures(request: Request, accountName: string) {
 
 function cspConnectSrc() {
   const allow = new Set(["'self'"]);
-  const rawUrl = import.meta.env.SUPABASE_URL;
+  const rawUrl = process.env.SUPABASE_URL || import.meta.env.SUPABASE_URL;
   if (!rawUrl) return Array.from(allow).join(" ");
 
   try {
@@ -94,6 +108,17 @@ function cspConnectSrc() {
   }
 
   return Array.from(allow).join(" ");
+}
+
+export function trustedAppOrigin(url: URL) {
+  const configured = String(process.env.APP_ORIGIN || import.meta.env.APP_ORIGIN || "").trim();
+  if (!configured) return url.origin;
+
+  try {
+    return new URL(configured).origin;
+  } catch {
+    return url.origin;
+  }
 }
 
 export function withSecurityHeaders(response: Response, url: URL) {
@@ -117,10 +142,15 @@ export function withSecurityHeaders(response: Response, url: URL) {
   response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
   response.headers.set("Origin-Agent-Cluster", "?1");
-  if (url.protocol === "https:") {
+  response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+  if (new URL(trustedAppOrigin(url)).protocol === "https:") {
     response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
   return response;
+}
+
+export function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 export function serializeJsonForScript(value: unknown) {

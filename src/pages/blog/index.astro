@@ -3,7 +3,7 @@ import PrototypeLayout from "../../layouts/PrototypeLayout.astro";
 import { createLocalsClient } from "../../lib/supabase";
 import { authorDisplayName, makeAuthorNames } from "../../lib/author-display";
 import { shanghaiParts } from "../../lib/datetime";
-import type { AuthorKey, BlogPost } from "../../lib/types";
+import { asRows, type AuthorKey, type BlogPost } from "../../lib/types";
 
 const supabase = createLocalsClient(Astro.locals);
 const [{ data }, { data: authorRows }] = await Promise.all([
@@ -14,7 +14,7 @@ const [{ data }, { data: authorRows }] = await Promise.all([
   supabase.from("profiles").select("author_key,display_name"),
 ]);
 
-const posts = (data || []) as BlogPost[];
+const posts = asRows<BlogPost>(data);
 const authorNames = makeAuthorNames(authorRows || []);
 const user = Astro.locals.user;
 const noticeError = Astro.url.searchParams.get("error");

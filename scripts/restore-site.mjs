@@ -11,7 +11,6 @@ import {
   readdirSync,
   rmSync,
   statSync,
-  appendFileSync,
   copyFileSync,
 } from "node:fs";
 import { chmod, mkdtemp } from "node:fs/promises";
@@ -32,6 +31,7 @@ const RESTORE_TABLES = [
   "todos",
   "todo_activity_entries",
   "comments",
+  "private_space_keys",
 ];
 
 const OWNER_FIELDS = new Map([
@@ -56,14 +56,6 @@ function loadDotEnv(path = resolve(process.cwd(), ".env")) {
   }
 }
 
-function appendEnvLine(name, value) {
-  const envPath = resolve(process.cwd(), ".env");
-  if (!value || process.env[name]) return;
-  appendFileSync(envPath, `\n${name}=${value}\n`, { mode: 0o600 });
-  process.env[name] = value;
-  console.log(`Added ${name} from backup to .env`);
-}
-
 function decodeKey(raw) {
   const value = String(raw || "").trim();
   if (!value) return null;
@@ -72,7 +64,17 @@ function decodeKey(raw) {
     const decoded = Buffer.from(value, "base64");
     if (decoded.length === 32) return decoded;
   } catch {}
-  return createHash("sha256").update(value).digest();
+  return null;
+}
+
+function backupKeyFromEnv() {
+  const key = decodeKey(process.env.BACKUP_ENCRYPTION_KEY);
+  if (key) return key;
+  if (process.env.ALLOW_LEGACY_BACKUP_PASSWORD === "1" && process.env.BACKUP_PASSWORD) {
+    console.warn("Using the legacy password-derived backup key for recovery only.");
+    return createHash("sha256").update(process.env.BACKUP_PASSWORD).digest();
+  }
+  return null;
 }
 
 function readHeader(path) {
@@ -111,6 +113,11 @@ function readJson(path) {
 
 function remapOwner(row, table, idMap) {
   const next = { ...row };
+  if (table === "private_space_keys") {
+    if (next.created_by) next.created_by = idMap.get(next.created_by) || next.created_by;
+    if (next.updated_by) next.updated_by = idMap.get(next.updated_by) || next.updated_by;
+    return next;
+  }
   const ownerField = OWNER_FIELDS.get(table);
   if (ownerField && next[ownerField]) {
     next[ownerField] = idMap.get(next[ownerField]) || next[ownerField];
@@ -155,7 +162,7 @@ async function restoreStorage(supabase, root) {
   await ensureBucket(supabase, "photos", {
     public: false,
     fileSizeLimit: 50 * 1024 * 1024,
-    allowedMimeTypes: ["application/octet-stream", "image/jpeg", "image/png", "image/webp", "image/gif"],
+    allowedMimeTypes: ["application/octet-stream"],
   });
   await ensureBucket(supabase, "blog-markdown", {
     public: false,
@@ -211,7 +218,7 @@ async function prepareBackupRoot(input, key) {
 
   const tarPath = join(tempRoot, "backup.tar.gz");
   if (input.endsWith(".enc")) {
-    if (!key) throw new Error("Missing BACKUP_ENCRYPTION_KEY or BACKUP_PASSWORD.");
+    if (!key) throw new Error("Missing or invalid BACKUP_ENCRYPTION_KEY.");
     await decryptBackup(input, tarPath, key);
   } else {
     copyFileSync(input, tarPath);
@@ -234,7 +241,7 @@ async function main() {
 
   const url = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const backupKey = decodeKey(process.env.BACKUP_ENCRYPTION_KEY || process.env.BACKUP_PASSWORD || process.env.APP_ENCRYPTION_KEY);
+  const backupKey = backupKeyFromEnv();
   if (!url || !serviceRoleKey) {
     console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
     process.exit(1);
@@ -250,18 +257,6 @@ async function main() {
     const supabase = createClient(url, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
-
-    const backupEnvPath = join(prepared.root, "private", "env.txt");
-    if (existsSync(backupEnvPath)) {
-      const backupEnv = readFileSync(backupEnvPath, "utf8");
-      const backupAppKey = backupEnv.match(/^APP_ENCRYPTION_KEY=(.+)$/m)?.[1]?.trim();
-      const backupBackupKey = backupEnv.match(/^BACKUP_ENCRYPTION_KEY=(.+)$/m)?.[1]?.trim();
-      appendEnvLine("APP_ENCRYPTION_KEY", backupAppKey);
-      appendEnvLine("BACKUP_ENCRYPTION_KEY", backupBackupKey);
-      if (backupAppKey && backupAppKey !== process.env.APP_ENCRYPTION_KEY) {
-        throw new Error("Current APP_ENCRYPTION_KEY differs from the backup. Use the backup key before restoring.");
-      }
-    }
 
     const idMap = await restoreProfiles(supabase, prepared.root);
     for (const table of RESTORE_TABLES) {

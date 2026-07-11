@@ -6,6 +6,7 @@ import { loadEnv } from 'vite';
 
 const env = loadEnv(process.env.NODE_ENV || 'production', process.cwd(), '');
 const appOrigin = env.APP_ORIGIN || process.env.APP_ORIGIN || '';
+/** @type {Array<{ hostname: string; protocol: string; port?: string }>} */
 let allowedDomains = [];
 
 try {

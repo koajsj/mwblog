@@ -28,7 +28,13 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   }
 
   const supabase = createAnonClient();
-  const { data, error } = await supabase.auth.signInWithPassword({ email: account.email, password });
+  let authResult;
+  try {
+    authResult = await supabase.auth.signInWithPassword({ email: account.email, password });
+  } catch {
+    return redirect(backToLogin("Login service is temporarily unavailable. Please try again shortly.", redirectTo), 303);
+  }
+  const { data, error } = authResult;
 
   if (error || !data.session) {
     recordLoginFailure(request, accountName);
@@ -43,11 +49,20 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   }
 
   const userClient = createUserClient(data.session.access_token);
-  const { data: profile } = await userClient
-    .from("profiles")
-    .select("email,author_key")
-    .eq("id", user.id)
-    .maybeSingle();
+  let profile = null;
+  try {
+    const result = await userClient
+      .from("profiles")
+      .select("email,author_key")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (result.error) {
+      return redirect(backToLogin("Login service is temporarily unavailable. Please try again shortly.", redirectTo), 303);
+    }
+    profile = result.data;
+  } catch {
+    return redirect(backToLogin("Login service is temporarily unavailable. Please try again shortly.", redirectTo), 303);
+  }
 
   if (!isAllowedPrivateProfile(profile, user.email)) {
     recordLoginFailure(request, accountName);

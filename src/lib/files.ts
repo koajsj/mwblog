@@ -91,3 +91,14 @@ export function storageSafeName(value: string, fallback = "file") {
 
   return base || fallback;
 }
+
+export function isOwnedStoragePath(value: string, ownerId: string) {
+  const path = String(value || "").trim();
+  const owner = String(ownerId || "").trim();
+  if (!path || !owner || path.startsWith("/") || path.includes("\\")) return false;
+
+  const segments = path.split("/");
+  return segments.length >= 2
+    && segments[0] === owner
+    && segments.every((segment) => /^[A-Za-z0-9._-]+$/.test(segment) && segment !== "." && segment !== "..");
+}

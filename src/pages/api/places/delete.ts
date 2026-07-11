@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { safeLocalRedirect } from "../../../lib/redirect";
+import { isUuid } from "../../../lib/security";
 import { createLocalsClient } from "../../../lib/supabase";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
@@ -12,7 +13,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const safeReturn = safeLocalRedirect(rawReturn, "/places");
   const sep = safeReturn.includes("?") ? "&" : "?";
 
-  if (!id) {
+  if (!isUuid(id)) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Missing place ID.")}`, 303);
   }
 
@@ -24,7 +25,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     .eq("owner_id", user.id);
 
   if (error) {
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(error.message)}`, 303);
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not delete the place.")}`, 303);
   }
 
   return redirect(`${safeReturn}${sep}deleted=place`, 303);

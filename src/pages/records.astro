@@ -3,9 +3,9 @@ import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createLocalsClient } from "../lib/supabase";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
 import { formatCommentTime } from "../lib/comments-display";
-import { shanghaiParts } from "../lib/datetime";
+import { shanghaiDateKey, shanghaiParts } from "../lib/datetime";
 import { serializeJsonForScript } from "../lib/security";
-import { MOOD_LABELS } from "../lib/types";
+import { MOOD_LABELS, asRows } from "../lib/types";
 import type { AuthorKey, Comment, LifeRecord, Photo } from "../lib/types";
 
 const supabase = createLocalsClient(Astro.locals);
@@ -28,7 +28,7 @@ const [{ data: recordsData }, { data: photosData }, { data: authorRows }] = awai
   supabase.from("profiles").select("author_key,display_name"),
 ]);
 
-const records = (recordsData || []) as LifeRecord[];
+const records = asRows<LifeRecord>(recordsData);
 const authorNames = makeAuthorNames(authorRows || []);
 
 // 一次性拉所有记录的评论，按 record_id 分组
@@ -42,14 +42,14 @@ const { data: commentRows } = recordIds.length
       .order("created_at", { ascending: true })
   : { data: [] };
 const commentsByRecord = new Map<string, Comment[]>();
-((commentRows || []) as Comment[]).forEach((c) => {
+asRows<Comment>(commentRows).forEach((c) => {
   const list = commentsByRecord.get(c.target_id) || [];
   list.push(c);
   commentsByRecord.set(c.target_id, list);
 });
 const currentAuthor = (profile?.author_key || "white") as AuthorKey;
 const currentAuthorName = authorDisplayName(profile, currentAuthor, authorNames);
-const photos = (photosData || []) as Photo[];
+const photos = asRows<Photo>(photosData);
 
 const photosByKey = new Map<string, typeof photos>();
 photos.forEach((photo) => {
@@ -79,7 +79,7 @@ function recordTime(value: string) {
   return p ? `${p.hour}:${p.minute}` : "";
 }
 
-const today = new Date().toISOString().slice(0, 10);
+const today = shanghaiDateKey();
 const moods: Array<{ key: string; label: string }> = [
   { key: "happy", label: "😄 Happy" },
   { key: "loved", label: "🥰 Loved" },
@@ -307,21 +307,26 @@ const deleted = Astro.url.searchParams.get("deleted");
           const fileInput = form.querySelector('input[name="photos"]') as HTMLInputElement | null;
           const files = Array.from(fileInput?.files || []);
 
+          if (files.length > 12) {
+            if (status) status.textContent = "Please keep each record to 12 photos or fewer.";
+            return;
+          }
+
           if (submitBtn) {
             submitBtn.disabled = true;
             submitBtn.setAttribute("aria-busy", "true");
           }
 
           try {
+            const privateSpace = (window as any).OurNestPrivate;
+            if (!privateSpace?.encryptText) throw new Error("Private-space encryption is not ready.");
+            const encryptedBody = await privateSpace.encryptText(body);
+            const encryptedCaption = await privateSpace.encryptText((body || "Photo").slice(0, 120));
             const photos = [];
             for (let i = 0; i < files.length; i++) {
               if (status) status.textContent = `Uploading photo ${i + 1} of ${files.length}…`;
               photos.push(await uploadImageFile(files[i]));
             }
-            const privateSpace = (window as any).OurNestPrivate;
-            if (!privateSpace?.encryptText) throw new Error("Private-space encryption is not ready.");
-            const encryptedBody = await privateSpace.encryptText(body);
-            const encryptedCaption = await privateSpace.encryptText((body || "Photo").slice(0, 120));
             if (status) status.textContent = "Saving…";
             const res = await fetch("/api/records/create", {
               method: "POST",
@@ -521,11 +526,22 @@ const deleted = Astro.url.searchParams.get("deleted");
         }
         document.querySelectorAll(".cmt-form").forEach(function (commentForm) {
           commentForm.addEventListener("submit", function (event) {
-            if (!privateSpace || !privateSpace.encryptFormFields) return;
             event.preventDefault();
+            var submit = commentForm.querySelector('button[type="submit"]');
+            if (!privateSpace || !privateSpace.encryptFormFields) {
+              if (submit) submit.textContent = "Encryption not ready";
+              return;
+            }
+            if (submit && submit.disabled) return;
+            if (submit) submit.disabled = true;
             privateSpace.encryptFormFields(commentForm, ["body"]).then(function () {
               commentForm.submit();
-            }).catch(function () {});
+            }).catch(function () {
+              if (submit) {
+                submit.disabled = false;
+                submit.textContent = "Try again";
+              }
+            });
           });
         });
       })();

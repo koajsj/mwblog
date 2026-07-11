@@ -41,7 +41,7 @@ button { cursor: pointer; }
   z-index: -1;
   background:
     linear-gradient(180deg, rgba(255,255,255,.25), rgba(255,255,255,.62)),
-    url("/assets/早晨草地.webp") center/cover;
+    url("/assets/首页封面.webp") center/cover;
   filter: saturate(.94);
 }
 
@@ -464,7 +464,7 @@ button { cursor: pointer; }
 .home-bg__layer {
   position: absolute;
   inset: -42px;
-  background: url("/assets/早晨草地.webp") center/cover;
+  background: url("/assets/首页封面.webp") center/cover;
   filter: blur(18px) saturate(.95);
 }
 
@@ -2325,7 +2325,7 @@ button { cursor: pointer; }
 
 .home-bg__layer {
   inset: -34px;
-  background-image: var(--home-bg-url, url("/assets/下午草地.webp"));
+  background-image: var(--home-bg-url, url("/assets/首页封面.webp"));
   background-size: cover;
   background-position: center;
   filter: blur(18px) saturate(1.08);

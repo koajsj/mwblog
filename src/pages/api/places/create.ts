@@ -44,7 +44,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   });
 
   if (error) {
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(error.message)}`, 303);
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not save the place.")}`, 303);
   }
 
   return redirect(`${safeReturn}${sep}created=place`, 303);

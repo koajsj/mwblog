@@ -12,14 +12,13 @@
     "preview": "astro preview",
     "astro": "astro",
     "setup:users": "node scripts/setup-fixed-users.mjs",
-    "encrypt:existing": "node scripts/encrypt-existing-data.mjs",
     "migrate:client-encryption": "node scripts/migrate-client-encryption.mjs",
     "backup": "node scripts/backup-site.mjs",
     "backup:decrypt": "node scripts/decrypt-backup.mjs",
     "restore": "node scripts/restore-site.mjs"
   },
   "dependencies": {
-    "@astrojs/node": "10.0.5",
+    "@astrojs/node": "10.1.4",
     "@astrojs/react": "^5.0.5",
     "@supabase/supabase-js": "^2.106.1",
     "astro": "6.4.6",

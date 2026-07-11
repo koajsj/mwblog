@@ -1,9 +1,10 @@
 import type { APIRoute } from "astro";
 import { createLocalsClient } from "../../../lib/supabase";
 import { isMissingTodoActivityLinkTable, json } from "../../../lib/todo-utils";
-import type { AuthorKey, TodoCompletionRange, TodoItem } from "../../../lib/types";
+import { asRows, type AuthorKey, type TodoCompletionRange, type TodoItem } from "../../../lib/types";
 
 export const GET: APIRoute = async ({ url, locals }) => {
+  if (!locals.user) return json({ error: "Please log in first." }, 401);
   const view = (url.searchParams.get("view") === "brown" ? "brown" : "white") as AuthorKey;
   const supabase = createLocalsClient(locals);
   const { data, error } = await supabase
@@ -11,9 +12,9 @@ export const GET: APIRoute = async ({ url, locals }) => {
     .select("id,owner_id,title,due_on,completed,completed_on,completed_start_time,completed_end_time,completed_minutes,activity_entry_id,archived_at,created_at,updated_at,profiles(display_name,author_key)")
     .order("created_at", { ascending: true });
 
-  if (error) return json({ error: error.message }, 500);
+  if (error) return json({ error: "Could not load the tasks." }, 500);
 
-  const todos = ((data || []) as TodoItem[]).filter((todo) => (todo.profiles?.author_key || "white") === view);
+  const todos = asRows<TodoItem>(data).filter((todo) => (todo.profiles?.author_key || "white") === view);
   const todoIds = todos.map((todo) => todo.id);
 
   if (todoIds.length) {
@@ -23,7 +24,7 @@ export const GET: APIRoute = async ({ url, locals }) => {
       .in("todo_id", todoIds);
 
     if (linkError && !isMissingTodoActivityLinkTable(linkError)) {
-      return json({ error: linkError.message }, 500);
+      return json({ error: "Could not load the task activity details." }, 500);
     }
 
     if (!linkError) {

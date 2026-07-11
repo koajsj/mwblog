@@ -28,9 +28,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   try {
     await ensureStorageBuckets();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Storage initialization failed";
-    return json({ error: message }, 500);
+  } catch {
+    return json({ error: "Photo storage is temporarily unavailable." }, 500);
   }
 
   const sourceBytes = new Uint8Array(await file.arrayBuffer());
@@ -51,9 +50,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     upsert: false,
   });
 
-  if (error) {
-    return json({ error: error.message || "Could not upload photo." }, 500);
-  }
+  if (error) return json({ error: "Could not upload the encrypted photo." }, 500);
 
   return json({ path, mime_type: detectedType });
 };

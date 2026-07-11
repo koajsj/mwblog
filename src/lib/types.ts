@@ -1,5 +1,13 @@
 export type AuthorKey = "white" | "brown";
 
+export function asRows<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : [];
+}
+
+export function asRow<T>(value: unknown): T {
+  return value as T;
+}
+
 export interface Profile {
   id: string;
   email: string;

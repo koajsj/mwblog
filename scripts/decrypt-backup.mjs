@@ -27,7 +27,17 @@ function decodeKey(raw) {
     const decoded = Buffer.from(value, "base64");
     if (decoded.length === 32) return decoded;
   } catch {}
-  return createHash("sha256").update(value).digest();
+  return null;
+}
+
+function backupKeyFromEnv() {
+  const key = decodeKey(process.env.BACKUP_ENCRYPTION_KEY);
+  if (key) return key;
+  if (process.env.ALLOW_LEGACY_BACKUP_PASSWORD === "1" && process.env.BACKUP_PASSWORD) {
+    console.warn("Using the legacy password-derived backup key for recovery only.");
+    return createHash("sha256").update(process.env.BACKUP_PASSWORD).digest();
+  }
+  return null;
 }
 
 function readHeader(path) {
@@ -46,10 +56,10 @@ async function main() {
   loadDotEnv();
   const input = process.argv[2];
   const output = process.argv[3] || "mwblog-backup.tar.gz";
-  const key = decodeKey(process.env.BACKUP_ENCRYPTION_KEY || process.env.BACKUP_PASSWORD || process.env.APP_ENCRYPTION_KEY);
+  const key = backupKeyFromEnv();
 
   if (!input || !key) {
-    console.error("Usage: BACKUP_PASSWORD=... node scripts/decrypt-backup.mjs <backup.tar.gz.enc> [output.tar.gz]");
+    console.error("Usage: BACKUP_ENCRYPTION_KEY=... node scripts/decrypt-backup.mjs <backup.tar.gz.enc> [output.tar.gz]");
     process.exit(1);
   }
 

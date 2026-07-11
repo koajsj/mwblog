@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import { isIsoCalendarDate } from "../../../lib/datetime";
 import { ACTIVITY_CATEGORIES } from "../../../lib/types";
 import { safeLocalRedirect } from "../../../lib/redirect";
 import { readEncryptedText } from "../../../lib/private-payload";
@@ -60,7 +61,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const startTime = normalizeTime(form.get("start_time"));
   const endTime = normalizeTime(form.get("end_time"));
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(activityOn)) {
+  if (!isIsoCalendarDate(activityOn)) {
     return redirect(withError(failTo, "Please choose an activity date."), 303);
   }
 
@@ -90,7 +91,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   });
 
   if (error) {
-    return redirect(withError(failTo, error.message), 303);
+    return redirect(withError(failTo, "Could not save the activity record."), 303);
   }
 
   return redirect(`${failTo}${failTo.includes("?") ? "&" : "?"}created=activity`, 303);

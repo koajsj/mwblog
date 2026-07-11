@@ -15,7 +15,17 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 
 function isEnvelope(value: unknown) {
   if (!isObjectRecord(value)) return false;
-  return ["salt", "iv", "data"].every((key) => typeof value[key] === "string" && String(value[key]).trim().length > 10);
+  const salt = String(value.salt || "");
+  const iv = String(value.iv || "");
+  const data = String(value.data || "");
+  const base64url = /^[A-Za-z0-9_-]+$/;
+  return salt.length === 22
+    && iv.length === 16
+    && data.length >= 48
+    && data.length <= 256
+    && base64url.test(salt)
+    && base64url.test(iv)
+    && base64url.test(data);
 }
 
 function isBundle(value: unknown) {
@@ -31,7 +41,31 @@ function isBundle(value: unknown) {
     && isEnvelope(value.passphrase)
     && isEnvelope(value.recovery)
     && typeof value.fingerprint === "string"
-    && String(value.fingerprint).trim().length >= 8;
+    && /^[A-Za-z0-9_-]{16}$/.test(String(value.fingerprint));
+}
+
+function normalizeBundle(value: unknown) {
+  if (!isBundle(value)) return null;
+  const source = value as Record<string, any>;
+  return {
+    version: 1,
+    kdf: {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      iterations: Number(source.kdf.iterations),
+    },
+    passphrase: {
+      salt: String(source.passphrase.salt),
+      iv: String(source.passphrase.iv),
+      data: String(source.passphrase.data),
+    },
+    recovery: {
+      salt: String(source.recovery.salt),
+      iv: String(source.recovery.iv),
+      data: String(source.recovery.data),
+    },
+    fingerprint: String(source.fingerprint),
+  };
 }
 
 export const GET: APIRoute = async ({ locals }) => {
@@ -44,7 +78,7 @@ export const GET: APIRoute = async ({ locals }) => {
     .eq("space_id", PRIVATE_SPACE_ID)
     .maybeSingle();
 
-  if (error) return json({ error: error.message }, 500);
+  if (error) return json({ error: "Could not load the private-space key bundle." }, 500);
   return json({ bundle: data?.bundle || null });
 };
 
@@ -53,8 +87,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!user) return json({ error: "Please log in." }, 401);
 
   const payload = await request.json().catch(() => null);
-  const bundle = payload?.bundle;
-  if (!isBundle(bundle)) {
+  const rawBundle = payload?.bundle;
+  if (!rawBundle || JSON.stringify(rawBundle).length > 4096) {
+    return json({ error: "Invalid private-space key bundle." }, 400);
+  }
+  const bundle = normalizeBundle(rawBundle);
+  if (!bundle) {
     return json({ error: "Invalid private-space key bundle." }, 400);
   }
 
@@ -65,7 +103,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     .eq("space_id", PRIVATE_SPACE_ID)
     .maybeSingle();
 
-  if (existingError) return json({ error: existingError.message }, 500);
+  if (existingError) return json({ error: "Could not verify the private-space key bundle." }, 500);
   if (existing) return json({ error: "The private-space key has already been created." }, 409);
 
   const row = {
@@ -84,7 +122,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   if (error) {
     if (error.code === "23505") return json({ error: "The private-space key has already been created." }, 409);
-    return json({ error: error.message }, 500);
+    return json({ error: "Could not save the private-space key bundle." }, 500);
   }
   return json({ ok: true, bundle: data?.bundle || bundle });
 };

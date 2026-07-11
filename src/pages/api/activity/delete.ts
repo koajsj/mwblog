@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { safeLocalRedirect } from "../../../lib/redirect";
+import { isUuid } from "../../../lib/security";
 import { createLocalsClient } from "../../../lib/supabase";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
@@ -10,7 +11,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const id = String(form.get("id") || "");
   const returnTo = String(form.get("return_to") || "/activity");
   const failTo = safeLocalRedirect(returnTo, "/activity");
-  if (!id) {
+  if (!isUuid(id)) {
     return redirect(`${failTo}${failTo.includes("?") ? "&" : "?"}error=${encodeURIComponent("Missing activity record ID.")}`, 303);
   }
 
@@ -22,7 +23,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     .eq("owner_id", user.id);
 
   if (error) {
-    return redirect(`${failTo}${failTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(error.message)}`, 303);
+    return redirect(`${failTo}${failTo.includes("?") ? "&" : "?"}error=${encodeURIComponent("Could not delete the activity record.")}`, 303);
   }
 
   return redirect(`${failTo}${failTo.includes("?") ? "&" : "?"}deleted=activity`, 303);

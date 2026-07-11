@@ -12,7 +12,6 @@ APP_USER="${APP_USER:-${APP_NAME}}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/${APP_NAME}}"
 RUN_SETUP_USERS="${RUN_SETUP_USERS:-1}"
 ENABLE_SSL="${ENABLE_SSL:-0}"
-RUN_LEGACY_ENCRYPTION="${RUN_LEGACY_ENCRYPTION:-0}"
 RUN_CLIENT_MIGRATION="${RUN_CLIENT_MIGRATION:-0}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
 
@@ -85,7 +84,6 @@ validate_env_file() {
     SUPABASE_URL
     SUPABASE_ANON_KEY
     SUPABASE_SERVICE_ROLE_KEY
-    APP_ENCRYPTION_KEY
     BACKUP_ENCRYPTION_KEY
   )
 
@@ -159,7 +157,6 @@ write_env_file() {
   log "Preparing environment file"
   if [ -f "$APP_DIR/.env" ]; then
     echo "Keeping existing $APP_DIR/.env"
-    ensure_env_line "APP_ENCRYPTION_KEY" "$(generate_encryption_key)"
     ensure_env_line "BACKUP_ENCRYPTION_KEY" "$(generate_encryption_key)"
     ensure_app_origin
     validate_env_file
@@ -169,7 +166,6 @@ write_env_file() {
   prompt_env SUPABASE_URL "Supabase URL"
   prompt_env SUPABASE_ANON_KEY "Supabase anon key"
   prompt_env SUPABASE_SERVICE_ROLE_KEY "Supabase service role key"
-  APP_ENCRYPTION_KEY="${APP_ENCRYPTION_KEY:-$(generate_encryption_key)}"
   BACKUP_ENCRYPTION_KEY="${BACKUP_ENCRYPTION_KEY:-$(generate_encryption_key)}"
 
   umask 077
@@ -177,7 +173,6 @@ write_env_file() {
 SUPABASE_URL=${SUPABASE_URL}
 SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
 SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY}
 BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY}
 EOF
   ensure_app_origin
@@ -198,12 +193,6 @@ build_app() {
   install_dependencies
   if [ "$RUN_SETUP_USERS" = "1" ]; then
     npm run setup:users
-  fi
-
-  if [ "$RUN_LEGACY_ENCRYPTION" = "1" ]; then
-    npm run encrypt:existing
-  else
-    echo "Skipping legacy server-side encryption migration. Set RUN_LEGACY_ENCRYPTION=1 to run it."
   fi
 
   if [ "$RUN_CLIENT_MIGRATION" = "1" ]; then
@@ -277,7 +266,7 @@ server {
     proxy_http_version 1.1;
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-For \$remote_addr;
     proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection "upgrade";
@@ -358,7 +347,7 @@ install_backup_timer
 echo "Deployment complete."
 echo "Service: systemctl status ${APP_NAME}"
 echo "Backup timer: systemctl status ${APP_NAME}-backup.timer"
-echo "Important: save APP_ENCRYPTION_KEY and BACKUP_ENCRYPTION_KEY from ${APP_DIR}/.env outside the VPS."
+echo "Important: save BACKUP_ENCRYPTION_KEY from ${APP_DIR}/.env outside the VPS."
 if [ -n "$DOMAIN" ]; then
   if [ "$ENABLE_SSL" = "1" ]; then
     echo "URL: https://${DOMAIN}"

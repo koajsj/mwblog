@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { readEncryptedText } from "../../../lib/private-payload";
+import { isUuid } from "../../../lib/security";
 import { createLocalsClient } from "../../../lib/supabase";
 import { json } from "../../../lib/todo-utils";
 
@@ -15,7 +16,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Invalid task content." }, 400);
   }
-  if (!id) return json({ error: "Missing task id." }, 400);
+  if (!isUuid(id)) return json({ error: "Missing task id." }, 400);
   if (!title) return json({ error: "Please enter a task." }, 400);
 
   const supabase = createLocalsClient(locals);
@@ -27,7 +28,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     .select("id")
     .maybeSingle();
 
-  if (error) return json({ error: error.message }, 500);
+  if (error) return json({ error: "Could not update the task." }, 500);
   if (!data) return json({ error: "Task not found." }, 404);
   return json({ ok: true });
 };

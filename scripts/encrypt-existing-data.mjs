@@ -150,6 +150,12 @@ async function encryptPhotoStorage(supabase, key) {
 
 loadDotEnv();
 
+if (process.env.ALLOW_LEGACY_SERVER_ENCRYPTION !== "1") {
+  console.error("This legacy enc:v1 migration is deprecated. Use migrate:client-encryption instead.");
+  console.error("Set ALLOW_LEGACY_SERVER_ENCRYPTION=1 only for an intentional one-off legacy recovery.");
+  process.exit(1);
+}
+
 const url = process.env.SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const key = decodeKey(process.env.APP_ENCRYPTION_KEY);

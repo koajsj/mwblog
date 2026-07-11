@@ -182,16 +182,19 @@
   }
 
   function postFieldToServer(field, value) {
-    if (!window.fetch || !privateSpace || !privateSpace.encryptText) return;
-    try {
-      privateSpace.encryptText(value || "").then(function (encrypted) {
-        return fetch("/api/status/field", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ field: field, value: encrypted })
-        });
-      }).catch(function () {});
-    } catch (e) {}
+    if (!window.fetch || !privateSpace || !privateSpace.encryptText) {
+      return Promise.reject(new Error("Private-space encryption is not ready."));
+    }
+    return privateSpace.encryptText(value || "").then(function (encrypted) {
+      return fetch("/api/status/field", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ field: field, value: encrypted })
+      });
+    }).then(function (response) {
+      if (!response.ok) throw new Error("Could not sync today's status.");
+      return response;
+    });
   }
 
   function currentWeatherWho() {
@@ -662,15 +665,24 @@
 
     function saveEditor(value) {
       if (!activeEdit) return;
+      var edit = { who: activeEdit.who, field: activeEdit.field };
       var trimmed = String(value || "").trim();
-      saveManualValue(activeEdit.who, activeEdit.field, trimmed);
-      if (currentWeatherWho() === activeEdit.who) {
-        postFieldToServer(activeEdit.field, trimmed);
-      }
-      renderStatus();
-      setSync(trimmed ? "Saved" : "Default restored", "saved");
-      closeEditor();
-      showFeedback(trimmed ? "Today’s note is saved in your little nest." : "The gentle default is back for today.");
+      if (currentWeatherWho() !== edit.who) return;
+      if (saveBtn) saveBtn.disabled = true;
+      if (clearBtn) clearBtn.disabled = true;
+      setSync("Saving…", "idle");
+      postFieldToServer(edit.field, trimmed).then(function () {
+        saveManualValue(edit.who, edit.field, trimmed);
+        renderStatus();
+        setSync(trimmed ? "Saved" : "Default restored", "saved");
+        closeEditor();
+        showFeedback(trimmed ? "Today’s note is saved in your little nest." : "The gentle default is back for today.");
+      }).catch(function () {
+        setSync("Could not sync. Please try again.", "error");
+      }).finally(function () {
+        if (saveBtn) saveBtn.disabled = false;
+        if (clearBtn) clearBtn.disabled = false;
+      });
     }
 
     if (input) {

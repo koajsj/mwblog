@@ -12,6 +12,14 @@ function isBase64Url(value: string) {
   return /^[A-Za-z0-9_-]+$/.test(value);
 }
 
+function decodeBase64Url(value: string) {
+  try {
+    return Buffer.from(value, "base64url");
+  } catch {
+    return null;
+  }
+}
+
 export function isClientEncryptedText(value: string | null | undefined) {
   return typeof value === "string" && value.startsWith(TEXT_PREFIX);
 }
@@ -37,6 +45,28 @@ export function readEncryptedText(value: unknown, options?: { allowEmpty?: boole
   if (!encoded || !isBase64Url(encoded)) {
     throw new Error("Encrypted content format is invalid.");
   }
+  const decoded = decodeBase64Url(encoded);
+  if (!decoded || decoded.length < 16 || decoded.length > (options?.maxLength || 4096)) {
+    throw new Error("Encrypted content format is invalid.");
+  }
+  try {
+    const parsed = JSON.parse(decoded.toString("utf8"));
+    const iv = String(parsed?.iv || "");
+    const data = String(parsed?.data || "");
+    const ivBytes = decodeBase64Url(iv);
+    const dataBytes = decodeBase64Url(data);
+    if (
+      !isBase64Url(iv)
+      || !isBase64Url(data)
+      || ivBytes?.length !== 12
+      || !dataBytes
+      || dataBytes.length < 16
+    ) {
+      throw new Error("invalid payload");
+    }
+  } catch {
+    throw new Error("Encrypted content format is invalid.");
+  }
   return normalized;
 }
 
@@ -59,7 +89,7 @@ export function parseEncryptedFileHeader(buffer: Uint8Array) {
   }
 
   const newline = buffer.indexOf(10);
-  if (newline <= headerPrefix.length) {
+  if (newline <= headerPrefix.length || newline > 1024) {
     throw new Error("Encrypted file header is invalid.");
   }
 
@@ -73,7 +103,14 @@ export function parseEncryptedFileHeader(buffer: Uint8Array) {
   const iv = String(parsed?.iv || "");
   const mimeType = String(parsed?.mimeType || "").trim().toLowerCase();
   const tag = String(parsed?.tag || "");
-  if (!iv || !tag || !mimeType || !isBase64Url(iv) || !isBase64Url(tag)) {
+  if (
+    !iv
+    || !mimeType
+    || !isBase64Url(iv)
+    || iv.length !== 16
+    || tag !== "packed"
+    || buffer.length - newline - 1 < 16
+  ) {
     throw new Error("Encrypted file header is incomplete.");
   }
 

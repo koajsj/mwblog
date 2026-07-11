@@ -39,7 +39,7 @@ export async function ensureStorageBuckets() {
   await ensureBucket("photos", {
     public: false,
     fileSizeLimit: 50 * 1024 * 1024,
-    allowedMimeTypes: ["application/octet-stream", "image/jpeg", "image/png", "image/webp", "image/gif"],
+    allowedMimeTypes: ["application/octet-stream"],
   });
 
   await ensureBucket("blog-markdown", {
@@ -74,8 +74,8 @@ export async function storageObjectExists(supabase: SupabaseClient, bucket: stri
   return Boolean((data || []).some((item) => item.name === filename));
 }
 
-export async function removeStoragePaths(supabase: SupabaseClient, bucket: string, paths: string[]) {
+export async function removeStoragePaths(_supabase: SupabaseClient, bucket: string, paths: string[]) {
   const cleanPaths = paths.map((path) => path.trim()).filter(Boolean);
   if (!cleanPaths.length) return;
-  await supabase.storage.from(bucket).remove(cleanPaths);
+  await createServiceClient().storage.from(bucket).remove(cleanPaths);
 }

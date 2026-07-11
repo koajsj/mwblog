@@ -12,6 +12,13 @@ const redirectTo = safeLocalRedirect(Astro.url.searchParams.get("redirect") || "
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Log in · Our Nest</title>
     <link rel="icon" type="image/png" href="/浏览器图标.png" />
+    <script is:inline>
+      try {
+        sessionStorage.removeItem("ournest.private.raw.v1");
+        sessionStorage.removeItem("ournest.private.bundle.v1");
+        localStorage.setItem("ournest.private.clear.v1", `${Date.now()}:${Math.random().toString(36).slice(2)}`);
+      } catch {}
+    </script>
     <script is:inline>document.documentElement.classList.add("site-loading");</script>
     <link rel="stylesheet" href="/styles/site-font.css" />
     <link rel="stylesheet" href="/styles/site-loader.css" />

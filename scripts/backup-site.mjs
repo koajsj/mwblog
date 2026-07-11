@@ -1,4 +1,4 @@
-import { createCipheriv, createHash, randomBytes } from "node:crypto";
+import { createCipheriv, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { chmod, mkdtemp } from "node:fs/promises";
@@ -10,6 +10,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const TABLES = [
   "profiles",
+  "private_space_keys",
   "blog_posts",
   "photos",
   "life_records",
@@ -45,7 +46,7 @@ function decodeKey(raw) {
     const decoded = Buffer.from(value, "base64");
     if (decoded.length === 32) return decoded;
   } catch {}
-  return createHash("sha256").update(value).digest();
+  return null;
 }
 
 function timestamp() {
@@ -177,18 +178,14 @@ async function encryptFile(inputPath, outputPath, key) {
 }
 
 async function main() {
-  const envPath = loadDotEnv();
+  loadDotEnv();
   const url = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const backupKey = decodeKey(process.env.BACKUP_ENCRYPTION_KEY || process.env.BACKUP_PASSWORD || process.env.APP_ENCRYPTION_KEY);
+  const backupKey = decodeKey(process.env.BACKUP_ENCRYPTION_KEY);
 
   if (!url || !serviceRoleKey || !backupKey) {
-    console.error("Missing SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, or BACKUP_ENCRYPTION_KEY.");
+    console.error("Missing credentials or BACKUP_ENCRYPTION_KEY is not a 32-byte hex/base64 key.");
     process.exit(1);
-  }
-
-  if (!process.env.BACKUP_ENCRYPTION_KEY && !process.env.BACKUP_PASSWORD) {
-    console.warn("Warning: backup uses APP_ENCRYPTION_KEY because BACKUP_ENCRYPTION_KEY is not set.");
   }
 
   const backupDir = resolve(process.env.BACKUP_DIR || "backups");
@@ -222,11 +219,6 @@ async function main() {
       console.log(`bucket ${bucket}: ${storageCounts[bucket]} files`);
     }
 
-    if (envPath) {
-      mkdirSync(join(workDir, "private"), { recursive: true });
-      writeFileSync(join(workDir, "private", "env.txt"), readFileSync(envPath));
-    }
-
     writeFileSync(
       join(workDir, "manifest.json"),
       JSON.stringify(
@@ -234,7 +226,7 @@ async function main() {
           created_at: new Date().toISOString(),
           tables: tableCounts,
           storage: storageCounts,
-          includes_env: Boolean(envPath),
+          includes_env: false,
         },
         null,
         2,

@@ -38,10 +38,13 @@ async function encryptPrivateTextValue(value: string) {
 async function decryptTodoRows(rows: TodoItem[]) {
   const api = privateSpaceApi();
   if (!api?.decryptText) return rows;
-  return Promise.all(rows.map(async (todo) => ({
-    ...todo,
-    title: await api.decryptText(todo.title),
-  })));
+  return Promise.all(rows.map(async (todo) => {
+    try {
+      return { ...todo, title: await api.decryptText(todo.title) };
+    } catch {
+      return { ...todo, title: "[Encrypted content unavailable]" };
+    }
+  }));
 }
 
 function todayKey() {
@@ -167,6 +170,17 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
   const inputRef = useRef<HTMLInputElement>(null);
   const modalCloseRef = useRef<HTMLButtonElement>(null);
   const loadRequestRef = useRef(0);
+  const mutationsRef = useRef(new Set<string>());
+
+  async function runMutation(key: string, action: () => Promise<void>) {
+    if (mutationsRef.current.has(key)) return;
+    mutationsRef.current.add(key);
+    try {
+      await action();
+    } finally {
+      mutationsRef.current.delete(key);
+    }
+  }
 
   const selectedName = authorNames[view];
   const listTodos = todos.filter((todo) => !isArchived(todo));
@@ -265,9 +279,11 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
       return;
     }
     try {
-      await postForm("/api/todos/create", { title: await encryptPrivateTextValue(title), due_on: draftDue });
-      setDraft("");
-      await loadTodos();
+      await runMutation("add", async () => {
+        await postForm("/api/todos/create", { title: await encryptPrivateTextValue(title), due_on: draftDue });
+        setDraft("");
+        await loadTodos();
+      });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not add task");
     }
@@ -281,9 +297,11 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
       return;
     }
     try {
-      await postForm("/api/todos/update", { id, title: await encryptPrivateTextValue(title) });
-      setEditingId(null);
-      await loadTodos();
+      await runMutation(`edit:${id}`, async () => {
+        await postForm("/api/todos/update", { id, title: await encryptPrivateTextValue(title) });
+        setEditingId(null);
+        await loadTodos();
+      });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not update task");
     }
@@ -296,8 +314,10 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
       : window.confirm("Delete this task? This cannot be undone.");
     if (!approved) return;
     try {
-      await postForm("/api/todos/delete", { id });
-      await loadTodos();
+      await runMutation(`delete:${id}`, async () => {
+        await postForm("/api/todos/delete", { id });
+        await loadTodos();
+      });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not delete task");
     }
@@ -312,7 +332,8 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
 
   async function completeSelected() {
     try {
-      if (isCompleting) return;
+      if (mutationsRef.current.has("complete")) return;
+      mutationsRef.current.add("complete");
       setIsCompleting(true);
       setCompletionMessage("");
       const normalizedRanges = completionRanges.map((range) => ({
@@ -340,14 +361,17 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
     } catch (error) {
       setCompletionMessage(error instanceof Error ? error.message : "Could not complete task");
     } finally {
+      mutationsRef.current.delete("complete");
       setIsCompleting(false);
     }
   }
 
   async function uncomplete(id: string) {
     try {
-      await postForm("/api/todos/uncomplete", { id });
-      await loadTodos();
+      await runMutation(`uncomplete:${id}`, async () => {
+        await postForm("/api/todos/uncomplete", { id });
+        await loadTodos();
+      });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not reopen task");
     }
@@ -360,8 +384,10 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
       : window.confirm("Clear every completed task from this list?");
     if (!approved) return;
     try {
-      await postForm("/api/todos/clear-completed", {});
-      await loadTodos();
+      await runMutation("clear-completed", async () => {
+        await postForm("/api/todos/clear-completed", {});
+        await loadTodos();
+      });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not clear completed tasks");
     }
@@ -373,8 +399,10 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
       setCompletionDate(todayKey());
       setCompletionRanges([newRange()]);
     } else if (listCompletedTodos.length) {
-      Promise.all(listCompletedTodos.map((todo) => postForm("/api/todos/uncomplete", { id: todo.id })))
-        .then(() => loadTodos())
+      runMutation("toggle-all", async () => {
+        await Promise.all(listCompletedTodos.map((todo) => postForm("/api/todos/uncomplete", { id: todo.id })));
+        await loadTodos();
+      })
         .catch((error) => setMessage(error instanceof Error ? error.message : "Could not reopen tasks"));
     }
   }

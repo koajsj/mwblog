@@ -2,7 +2,7 @@
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createLocalsClient } from "../lib/supabase";
 import { authorDisplayName } from "../lib/author-display";
-import type { AuthorKey, Place, PlaceTone } from "../lib/types";
+import { asRows, type AuthorKey, type Place, type PlaceTone } from "../lib/types";
 
 const supabase = createLocalsClient(Astro.locals);
 const user = Astro.locals.user;
@@ -12,7 +12,7 @@ const { data } = await supabase
   .select("id,owner_id,name,note,tone,created_at,updated_at,profiles(display_name,author_key)")
   .order("created_at", { ascending: false });
 
-const places = (data || []) as Place[];
+const places = asRows<Place>(data);
 
 const noticeError = Astro.url.searchParams.get("error");
 const created = Astro.url.searchParams.get("created");
@@ -133,9 +133,17 @@ const deleted = Astro.url.searchParams.get("deleted");
         if (form && window.OurNestPrivate && window.OurNestPrivate.encryptFormFields) {
           form.addEventListener("submit", function (event) {
             event.preventDefault();
+            var submit = form.querySelector('button[type="submit"]');
+            if (submit && submit.disabled) return;
+            if (submit) submit.disabled = true;
             window.OurNestPrivate.encryptFormFields(form, ["name", "note"]).then(function () {
               form.submit();
-            }).catch(function () {});
+            }).catch(function () {
+              if (submit) {
+                submit.disabled = false;
+                submit.textContent = "Try again";
+              }
+            });
           });
         }
 

@@ -1,9 +1,10 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createLocalsClient } from "../lib/supabase";
+import { shanghaiDateKey } from "../lib/datetime";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
 import { serializeJsonForScript } from "../lib/security";
-import { MOOD_LABELS } from "../lib/types";
+import { MOOD_LABELS, asRows } from "../lib/types";
 import type { AuthorKey, LifeRecord, Photo } from "../lib/types";
 
 const supabase = createLocalsClient(Astro.locals);
@@ -23,8 +24,8 @@ const [{ data: photosData }, { data: recordsData }, { data: authorRows }] = awai
   supabase.from("profiles").select("author_key,display_name"),
 ]);
 
-const photos = (photosData || []) as Photo[];
-const records = (recordsData || []) as LifeRecord[];
+const photos = asRows<Photo>(photosData);
+const records = asRows<LifeRecord>(recordsData);
 const authorNames = makeAuthorNames(authorRows || []);
 const currentAuthorName = authorDisplayName(profile, myAuthorKey, authorNames);
 
@@ -48,7 +49,7 @@ function prettyDate(value: string) {
   return `${Number(mm)}/${Number(dd)}`;
 }
 
-const today = new Date().toISOString().slice(0, 10);
+const today = shanghaiDateKey();
 
 // 把详情视图所需的数据序列化，给客户端 JS 使用
 const photoBundles: Record<string, Array<{
@@ -233,13 +234,14 @@ const deleted = Astro.url.searchParams.get("deleted");
           if (status) status.textContent = "Uploading…";
 
           try {
-            const { path, mime_type } = await uploadImageFile(file);
             const privateSpace = (window as any).OurNestPrivate;
             if (!privateSpace?.encryptText) throw new Error("Private-space encryption is not ready.");
+            const encryptedTitle = title ? await privateSpace.encryptText(title) : "";
+            const { path, mime_type } = await uploadImageFile(file);
             const res = await fetch("/api/photos/commit", {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ path, mime_type, title: title ? await privateSpace.encryptText(title) : "", taken_on: takenOn }),
+              body: JSON.stringify({ path, mime_type, title: encryptedTitle, taken_on: takenOn }),
             });
             if (!res.ok) {
               const data = await res.json().catch(() => ({}));

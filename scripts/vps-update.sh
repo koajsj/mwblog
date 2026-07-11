@@ -9,7 +9,6 @@ APP_USER="${APP_USER:-${APP_NAME}}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/${APP_NAME}}"
 DOMAIN="${DOMAIN:-}"
 RUN_SETUP_USERS="${RUN_SETUP_USERS:-0}"
-RUN_LEGACY_ENCRYPTION="${RUN_LEGACY_ENCRYPTION:-0}"
 RUN_CLIENT_MIGRATION="${RUN_CLIENT_MIGRATION:-0}"
 
 SUDO=""
@@ -76,7 +75,6 @@ validate_env_file() {
     SUPABASE_URL
     SUPABASE_ANON_KEY
     SUPABASE_SERVICE_ROLE_KEY
-    APP_ENCRYPTION_KEY
     BACKUP_ENCRYPTION_KEY
   )
 
@@ -96,7 +94,8 @@ validate_env_file() {
     exit 1
   fi
 
-  chmod 600 "$APP_DIR/.env"
+  $SUDO chown root:"$APP_USER" "$APP_DIR/.env"
+  $SUDO chmod 640 "$APP_DIR/.env"
 }
 
 ensure_clean_checkout() {
@@ -211,6 +210,9 @@ rollback() {
     git checkout "$PREVIOUS_REV" >&2 || true
     install_dependencies >&2 || true
     npm run build >&2 || true
+    install_systemd_service >&2 || true
+    install_backup_timer >&2 || true
+    $SUDO systemctl daemon-reload >&2 || true
     $SUDO systemctl restart "$APP_NAME" >&2 || true
   fi
   exit "$status"
@@ -227,7 +229,6 @@ if [ ! -f "$APP_DIR/.env" ]; then
   echo "Missing $APP_DIR/.env. Run scripts/vps-deploy.sh first or create the environment file manually." >&2
   exit 1
 fi
-ensure_env_line "APP_ENCRYPTION_KEY" "$(generate_encryption_key)"
 ensure_env_line "BACKUP_ENCRYPTION_KEY" "$(generate_encryption_key)"
 ensure_app_origin
 ensure_app_user
@@ -247,12 +248,6 @@ log "Installing dependencies and building"
 install_dependencies
 if [ "$RUN_SETUP_USERS" = "1" ]; then
   npm run setup:users
-fi
-
-if [ "$RUN_LEGACY_ENCRYPTION" = "1" ]; then
-  npm run encrypt:existing
-else
-  echo "Skipping legacy server-side encryption migration. Set RUN_LEGACY_ENCRYPTION=1 to run it."
 fi
 
 if [ "$RUN_CLIENT_MIGRATION" = "1" ]; then

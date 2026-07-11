@@ -7,7 +7,6 @@ const TEXT_PREFIX = "enc:wc1:";
 const LEGACY_TEXT_PREFIX = "enc:v1:";
 const FILE_PREFIX = "MWBLOG-WC1 ";
 const LEGACY_FILE_PREFIX = "MWBLOG_FILE_V1 ";
-const PBKDF2_ITERATIONS = 310000;
 const PRIVATE_SPACE_ID = "private-couple-space";
 
 const subtle = webcrypto.subtle;
@@ -34,6 +33,12 @@ const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const appKeyRaw = process.env.APP_ENCRYPTION_KEY || "";
 const passphrase = process.env.SPACE_PASSPHRASE || "";
 const recoveryCode = process.env.SPACE_RECOVERY_CODE || "";
+
+if (appKeyRaw && process.env.ALLOW_LEGACY_SERVER_DECRYPTION !== "1") {
+  console.error("APP_ENCRYPTION_KEY enables legacy server-side decryption.");
+  console.error("Set ALLOW_LEGACY_SERVER_DECRYPTION=1 only for an intentional one-off legacy migration.");
+  process.exit(1);
+}
 
 if (!supabaseUrl || !serviceKey) {
   console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");

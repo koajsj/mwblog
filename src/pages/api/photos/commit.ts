@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
+import { isIsoCalendarDate } from "../../../lib/datetime";
 import { createLocalsClient } from "../../../lib/supabase";
-import { isAllowedImageType } from "../../../lib/files";
+import { isAllowedImageType, isOwnedStoragePath } from "../../../lib/files";
 import { readNullableEncryptedText } from "../../../lib/private-payload";
 import { removeStoragePaths, storageObjectExists } from "../../../lib/storage";
 
@@ -30,13 +31,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const takenOn = String(payload?.taken_on || "").trim() || null;
 
   // 只允许写入自己目录下、且确实由本次会话上传的路径。
-  if (!path || !path.startsWith(`${user.id}/`)) {
+  if (!isOwnedStoragePath(path, user.id)) {
     return json({ error: "Invalid upload path." }, 400);
   }
-  if (mimeType && !isAllowedImageType(mimeType)) {
+  if (!isAllowedImageType(mimeType)) {
     return json({ error: "Only image files can be uploaded." }, 400);
   }
-  if (takenOn && !/^\d{4}-\d{2}-\d{2}$/.test(takenOn)) {
+  if (takenOn && !isIsoCalendarDate(takenOn)) {
     return json({ error: "Please choose a valid date." }, 400);
   }
   const supabase = createLocalsClient(locals);
@@ -55,7 +56,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   if (insertError) {
     await removeStoragePaths(supabase, "photos", [path]);
-    return json({ error: insertError.message }, 500);
+    return json({ error: "Could not save the photo." }, 500);
   }
 
   return json({ ok: true });

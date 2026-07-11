@@ -1,15 +1,16 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import { createLocalsClient } from "../lib/supabase";
-import { decryptPrivateRows } from "../lib/private-data";
+import { isIsoCalendarDate, shanghaiDateKey } from "../lib/datetime";
+import { isClientEncryptedText } from "../lib/private-payload";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
-import { ACTIVITY_PERIODS, AUTHOR_COLORS } from "../lib/types";
+import { ACTIVITY_PERIODS, AUTHOR_COLORS, asRows } from "../lib/types";
 import type { ActivityEntry, AuthorKey } from "../lib/types";
 
 const supabase = createLocalsClient(Astro.locals);
-const todayKey = new Date().toISOString().slice(0, 10);
+const todayKey = shanghaiDateKey();
 const requestedDate = Astro.url.searchParams.get("date") || todayKey;
-const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : todayKey;
+const selectedDate = isIsoCalendarDate(requestedDate) ? requestedDate : todayKey;
 const requestedMonth = Astro.url.searchParams.get("month") || selectedDate.slice(0, 7);
 const monthHit = requestedMonth.match(/^(\d{4})-(\d{2})$/);
 const selectedMonth = monthHit && Number(monthHit[2]) >= 1 && Number(monthHit[2]) <= 12 ? requestedMonth : selectedDate.slice(0, 7);
@@ -103,6 +104,10 @@ function taskName(entry: ActivityEntry) {
   return entry.body.trim() || "Untitled task";
 }
 
+function taskDisplay(value: string) {
+  return isClientEncryptedText(value) ? "Private task" : value;
+}
+
 function hashString(value: string) {
   let hash = 0;
   for (let i = 0; i < value.length; i += 1) {
@@ -129,14 +134,14 @@ function entryDuration(entry: ActivityEntry) {
   return Math.max(1, Math.min(1440, Number(entry.minutes || 1)));
 }
 
-const allEntries = decryptPrivateRows((data || []) as ActivityEntry[], ["body"]).sort((a, b) => {
+const allEntries = asRows<ActivityEntry>(data).sort((a, b) => {
   const startDiff = entryStartMinute(a) - entryStartMinute(b);
   if (startDiff !== 0) return startDiff;
   return a.created_at.localeCompare(b.created_at);
 });
 
 const entries = allEntries.filter((entry) => (entry.profiles?.author_key || "white") === selectedView);
-const monthEntries = decryptPrivateRows((monthData || []) as ActivityEntry[], ["body"]).filter((entry) => (entry.profiles?.author_key || "white") === selectedView);
+const monthEntries = asRows<ActivityEntry>(monthData).filter((entry) => (entry.profiles?.author_key || "white") === selectedView);
 const authorNames = makeAuthorNames(authorRows || []);
 const selectedLabel = authorNames[selectedView];
 const selectedColor = AUTHOR_COLORS[selectedView];
@@ -291,6 +296,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
             </div>
 
             <button class="act-submit" type="submit">Add record</button>
+            <p class="site-notice site-notice--error is-hidden" id="actFormError" role="alert"></p>
           </>
         )}
       </form>}
@@ -317,8 +323,8 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
 
             {timelineRows.length ? timelineRows.map((row) => (
               <section class="timeline-row">
-                <div class="timeline-row__label" title={row.name}>
-                  <strong>{row.name}</strong>
+                <div class="timeline-row__label" title={taskDisplay(row.name)}>
+                  <strong data-private-text={row.name} data-private-fallback="Private task">{taskDisplay(row.name)}</strong>
                   <span>{fmtMinutes(row.minutes)}</span>
                 </div>
                 <div class="timeline-row__track">
@@ -331,9 +337,9 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
                       <article
                         class:list={["timeline-block", `timeline-block--${selectedView}`]}
                         style={`--x:${((start / 1440) * 100).toFixed(3)}%;--w:${((duration / 1440) * 100).toFixed(3)}%;--bar:${colorForTask(name)}`}
-                        title={`${name} ${fmtEntryTime(entry)} (${fmtMinutes(duration)})`}
+                        title={`${taskDisplay(name)} ${fmtEntryTime(entry)} (${fmtMinutes(duration)})`}
                       >
-                        <span class="timeline-block__name">{name}</span>
+                        <span class="timeline-block__name" data-private-text={name} data-private-fallback="Private task">{taskDisplay(name)}</span>
                         <span class="timeline-block__time">{fmtEntryTime(entry)}</span>
                         {isOwner && (
                           <form action="/api/activity/delete" method="post" class="time-block__delform" data-confirm="Delete this activity record?" data-confirm-title="Delete activity?" style="display:inline;">
@@ -375,7 +381,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
               {monthStats.length ? monthStats.map((task) => (
                 <div class="month-legend__item">
                   <i style={`--c:${colorForTask(task.name)}`}></i>
-                  <span title={task.name}>{task.name}</span>
+                  <span title={taskDisplay(task.name)} data-private-text={task.name} data-private-fallback="Private task">{taskDisplay(task.name)}</span>
                   <strong>{monthTotal ? Math.round((task.minutes / monthTotal) * 100) : 0}%</strong>
                 </div>
               )) : <p class="stat-empty">This month is still waiting for a few shared rhythms.</p>}
@@ -394,7 +400,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
                     <div class="month-bar__column">
                       <span>{fmtMinutes(task.minutes)}</span>
                     </div>
-                    <p title={task.name}>{task.name}</p>
+                    <p title={taskDisplay(task.name)} data-private-text={task.name} data-private-fallback="Private task">{taskDisplay(task.name)}</p>
                   </div>
                 ))}
               </div>
@@ -416,7 +422,7 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
           {stats.length ? stats.map((task) => (
             <div class="stat-bar">
               <div class="stat-bar__top">
-                <span title={task.name}>{task.name}</span>
+                <span title={taskDisplay(task.name)} data-private-text={task.name} data-private-fallback="Private task">{taskDisplay(task.name)}</span>
                 <span>{fmtMinutes(task.minutes)}</span>
               </div>
               <div class="stat-bar__rail">
@@ -478,12 +484,35 @@ const timeTicks = Array.from({ length: 9 }, (_item, index) => index * 180);
           });
           form.addEventListener("submit", function (event) {
             var privateSpace = window.OurNestPrivate || null;
-            if (!privateSpace || !privateSpace.encryptFormFields) return;
             event.preventDefault();
+            var submit = form.querySelector('button[type="submit"]');
+            var error = document.getElementById("actFormError");
+            if (!privateSpace || !privateSpace.encryptFormFields) {
+              if (error) {
+                error.textContent = "Private-space encryption is not ready. Please try again.";
+                error.classList.remove("is-hidden");
+              }
+              return;
+            }
+            if (submit && submit.disabled) return;
+            if (submit) submit.disabled = true;
+            if (error) error.classList.add("is-hidden");
             privateSpace.encryptFormFields(form, ["body"]).then(function () {
               form.submit();
-            }).catch(function () {});
+            }).catch(function () {
+              if (submit) submit.disabled = false;
+              if (error) {
+                error.textContent = "Could not encrypt this activity. Please try again.";
+                error.classList.remove("is-hidden");
+              }
+            });
           });
+        }
+        var privateSpace = window.OurNestPrivate || null;
+        if (privateSpace && privateSpace.ready && privateSpace.decryptTextNodes) {
+          privateSpace.ready().then(function () {
+            return privateSpace.decryptTextNodes(document.querySelector(".act-shell"));
+          }).catch(function () {});
         }
         document.querySelectorAll("[data-clock-input]").forEach(function (input) {
           input.addEventListener("blur", function () {

@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import { isUuid } from "../../../lib/security";
 import { createLocalsClient } from "../../../lib/supabase";
 
 export const GET: APIRoute = async ({ url, locals }) => {
@@ -7,7 +8,7 @@ export const GET: APIRoute = async ({ url, locals }) => {
   }
 
   const id = url.searchParams.get("id") || "";
-  if (!id) {
+  if (!isUuid(id)) {
     return new Response("Missing photo id.", { status: 400 });
   }
 
@@ -19,7 +20,7 @@ export const GET: APIRoute = async ({ url, locals }) => {
     .maybeSingle();
 
   if (readError) {
-    return new Response(readError.message, { status: 500 });
+    return new Response("Could not load the photo metadata.", { status: 500 });
   }
   if (!photo?.storage_path) {
     return new Response("Photo not found.", { status: 404 });
@@ -27,7 +28,7 @@ export const GET: APIRoute = async ({ url, locals }) => {
 
   const { data: file, error: downloadError } = await supabase.storage.from("photos").download(photo.storage_path);
   if (downloadError || !file) {
-    return new Response(downloadError?.message || "Photo file not found.", { status: 404 });
+    return new Response("Photo file not found.", { status: 404 });
   }
 
   return new Response(await file.arrayBuffer(), {

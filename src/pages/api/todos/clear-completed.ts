@@ -14,7 +14,7 @@ export const POST: APIRoute = async ({ locals }) => {
     .eq("completed", true)
     .is("archived_at", null);
 
-  if (readError) return json({ error: readError.message }, 500);
+  if (readError) return json({ error: "Could not load the completed tasks." }, 500);
 
   const todoIds = (todos || []).map((todo) => todo.id).filter(Boolean);
   if (!todoIds.length) return json({ ok: true });
@@ -24,6 +24,6 @@ export const POST: APIRoute = async ({ locals }) => {
     .update({ archived_at: new Date().toISOString() })
     .in("id", todoIds)
     .eq("owner_id", user.id);
-  if (error) return json({ error: error.message }, 500);
+  if (error) return json({ error: "Could not archive the completed tasks." }, 500);
   return json({ ok: true });
 };

@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { storageSafeName } from "../../../lib/files";
+import { isOwnedStoragePath, storageSafeName } from "../../../lib/files";
 import { parseTagList, slugify } from "../../../lib/markdown";
 import { ensureStorageBuckets } from "../../../lib/storage";
 import { safeLocalRedirect } from "../../../lib/redirect";
@@ -24,12 +24,12 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   if (!user) return redirect("/auth/login", 303);
 
   const payload = await request.json().catch(() => null);
-  const manualSlug = String(payload?.slug || "").trim();
-  const manualTags = parseTagList(String(payload?.tags || ""));
+  const manualSlug = String(payload?.slug || "").trim().slice(0, 180);
+  const manualTags = parseTagList(String(payload?.tags || "").slice(0, 4096));
   const rawReturn = String(payload?.return_to || "").trim();
   const safeReturn = safeLocalRedirect(rawReturn, "/blog");
   const sep = safeReturn.includes("?") ? "&" : "?";
-  const fallbackTitle = String(payload?.filename || "post").replace(/\.(md|markdown)$/i, "") || "post";
+  const fallbackTitle = String(payload?.filename || "post").slice(0, 180).replace(/\.(md|markdown)$/i, "") || "post";
   let title = "";
   let excerpt = "";
   let content = "";
@@ -41,8 +41,13 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(error instanceof Error ? error.message : "Invalid encrypted blog content.")}`, 303);
   }
 
-  const tags = mergeTags(Array.isArray(payload?.parsed_tags) ? payload.parsed_tags.map((item: unknown) => String(item || "")) : [], manualTags);
-  const slug = slugify(manualSlug || fallbackTitle);
+  const tags = mergeTags(
+    Array.isArray(payload?.parsed_tags)
+      ? payload.parsed_tags.slice(0, 50).map((item: unknown) => String(item || "").slice(0, 128))
+      : [],
+    manualTags,
+  );
+  const slug = slugify(manualSlug || fallbackTitle).slice(0, 120);
   const supabase = createLocalsClient(locals);
   const storage = createServiceClient().storage.from("blog-markdown");
   const storageName = storageSafeName(slug, "post");
@@ -56,9 +61,8 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
 
   try {
     await ensureStorageBuckets();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Storage initialization failed";
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(message)}`, 303);
+  } catch {
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Blog storage is temporarily unavailable.")}`, 303);
   }
 
   const { error: uploadError } = await storage.upload(storagePath, new Blob([content]), {
@@ -67,7 +71,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   });
 
   if (uploadError) {
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(uploadError.message)}`, 303);
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not upload the encrypted diary file.")}`, 303);
   }
 
   const { error: upsertError } = await supabase.from("blog_posts").upsert(
@@ -86,10 +90,14 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
 
   if (upsertError) {
     await storage.remove([storagePath]);
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(upsertError.message)}`, 303);
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not save the diary entry.")}`, 303);
   }
 
-  if (existingPost?.storage_path && existingPost.storage_path !== storagePath) {
+  if (
+    existingPost?.storage_path
+    && existingPost.storage_path !== storagePath
+    && isOwnedStoragePath(existingPost.storage_path, user.id)
+  ) {
     await storage.remove([existingPost.storage_path]).catch(() => undefined);
   }
 

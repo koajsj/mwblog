@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import { isIsoCalendarDate } from "../../../lib/datetime";
 import { extensionFromName, MAX_PHOTO_BYTES, isAllowedImageType } from "../../../lib/files";
 import { parseEncryptedFileHeader, readNullableEncryptedText } from "../../../lib/private-payload";
 import { ensureStorageBuckets } from "../../../lib/storage";
@@ -23,6 +24,10 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(error instanceof Error ? error.message : "Invalid encrypted photo text.")}`, 303);
   }
   const takenOn = String(form.get("taken_on") || "").trim() || null;
+
+  if (takenOn && !isIsoCalendarDate(takenOn)) {
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Please choose a valid date.")}`, 303);
+  }
 
   if (!(file instanceof File) || file.size === 0) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Please choose a photo to upload.")}`, 303);
@@ -49,9 +54,8 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
 
   try {
     await ensureStorageBuckets();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Storage initialization failed";
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(message)}`, 303);
+  } catch {
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Photo storage is temporarily unavailable.")}`, 303);
   }
 
   const { error: uploadError } = await storage.upload(path, sourceBytes, {
@@ -60,7 +64,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   });
 
   if (uploadError) {
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(uploadError.message)}`, 303);
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not upload the encrypted photo.")}`, 303);
   }
 
   const { error: insertError } = await supabase.from("photos").insert({
@@ -74,7 +78,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
 
   if (insertError) {
     await storage.remove([path]);
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(insertError.message)}`, 303);
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not save the photo.")}`, 303);
   }
 
   return redirect(`${safeReturn}${sep}uploaded=photo`, 303);

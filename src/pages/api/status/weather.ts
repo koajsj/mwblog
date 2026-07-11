@@ -40,6 +40,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
     })
     .eq("id", user.id);
 
-  if (error) return json({ ok: false, error: error.message }, 500);
+  if (error) return json({ ok: false, error: "Could not update the weather note." }, 500);
   return json({ ok: true });
 };

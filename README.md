@@ -176,11 +176,11 @@ npm install
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
-APP_ENCRYPTION_KEY=...
 BACKUP_ENCRYPTION_KEY=...
 ```
 
 `SUPABASE_SERVICE_ROLE_KEY` 只允许在 Astro 服务端使用，不要写进任何 `PUBLIC_` 环境变量，也不要暴露给浏览器。
+新数据使用浏览器端私密空间密钥加密，生产运行环境不需要 `APP_ENCRYPTION_KEY`。
 
 没有 `SUPABASE_URL` 和 `SUPABASE_ANON_KEY` 时，Astro 中间件会直接返回 `500`，本地页面无法正常打开。
 
@@ -215,7 +215,6 @@ APP_ORIGIN=https://example.com
 ENABLE_SSL=1
 CERTBOT_EMAIL=admin@example.com
 RUN_SETUP_USERS=1
-RUN_LEGACY_ENCRYPTION=0
 RUN_CLIENT_MIGRATION=0
 ```
 
@@ -225,9 +224,9 @@ RUN_CLIENT_MIGRATION=0
 sh scripts/vps-update.sh
 ```
 
-部署脚本会安装 Node.js 22、拉取代码、校验 `.env`、按 `package-lock.json` 安装依赖、初始化 `mm/ww` 两个账号、构建 Astro，并以受限的 `APP_USER` systemd 账号运行服务。`.env` 会以 `root:APP_USER`、`0640` 保存，仅供应用与备份服务读取。`APP_ORIGIN` 用于信任 Nginx 转发的 HTTPS 协议并保证 CSRF 同源校验正常；部署或更新脚本会按域名自动补齐。设置 `ENABLE_SSL=1` 时必须提供域名，Certbot 或证书签发失败会中止部署并禁用该站点的 Nginx 配置，避免 HTTP 降级。Nginx 上传体积限制为 60MB，应用照片上传限制为 50MB。
+部署脚本会安装 Node.js 22、拉取代码、校验 `.env`、按 `package-lock.json` 安装依赖、初始化 `mm/ww` 两个账号、构建 Astro，并以受限的 `APP_USER` systemd 账号运行服务。账号已存在时，初始化脚本只同步固定身份资料，不会重置现有密码；只有显式设置 `RESET_FIXED_USER_PASSWORDS=1` 才会重置。`.env` 会以 `root:APP_USER`、`0640` 保存，仅供应用与备份服务读取。`APP_ORIGIN` 用于信任 Nginx 转发的 HTTPS 协议并保证 CSRF 同源校验正常；部署或更新脚本会按域名自动补齐。设置 `ENABLE_SSL=1` 时必须提供域名，Certbot 或证书签发失败会中止部署并禁用该站点的 Nginx 配置，避免 HTTP 降级。Nginx 上传体积限制为 60MB，应用照片上传限制为 50MB。
 
-更新脚本会先完成拉取、依赖安装和构建，成功后才重启 systemd 服务。构建或重启失败时会尝试回到更新前的提交并重新构建启动；数据迁移始终需要单独确认，数据库和 Storage 变更不会自动回滚。旧的服务端加密迁移默认不会自动执行；只有旧数据还处在 `enc:v1` / `MWBLOG_FILE_V1` 阶段时，才临时设置 `RUN_LEGACY_ENCRYPTION=1`。客户端加密迁移需要解锁私密空间密钥，默认也不会自动执行，可在准备好 `SPACE_PASSPHRASE` 或 `SPACE_RECOVERY_CODE` 后设置 `RUN_CLIENT_MIGRATION=1` 或手动运行 `npm run migrate:client-encryption`。
+更新脚本会先完成拉取、依赖安装和构建，成功后才重启 systemd 服务。构建或重启失败时会尝试回到更新前的提交并重新构建启动；数据迁移始终需要单独确认，数据库和 Storage 变更不会自动回滚。客户端加密迁移需要解锁私密空间密钥，默认不会自动执行，可在准备好 `SPACE_PASSPHRASE` 或 `SPACE_RECOVERY_CODE` 后设置 `RUN_CLIENT_MIGRATION=1` 或手动运行 `npm run migrate:client-encryption`。如果历史数据仍处于 `enc:v1` / `MWBLOG_FILE_V1`，只在一次性离线迁移时临时提供 `APP_ENCRYPTION_KEY` 并设置 `ALLOW_LEGACY_SERVER_DECRYPTION=1`。
 
 默认访问：
 
@@ -287,7 +286,7 @@ mm / qwerasdf
 ww / qwerasdf
 ```
 
-这是引导用默认值。首次部署后应立即在 Supabase Auth 中改成你们自己的密码；如果再次运行 `npm run setup:users`，脚本会把密码重置回默认值。
+这是引导用默认值。首次部署后应立即在 Supabase Auth 中改成你们自己的密码。再次运行 `npm run setup:users` 只会同步固定身份资料；只有显式设置 `RESET_FIXED_USER_PASSWORDS=1` 才会重置密码。
 
 ## 客户端加密
 

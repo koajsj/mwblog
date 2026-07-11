@@ -19,7 +19,7 @@ export function setSessionCookies(cookies: AstroCookies, session: Session) {
   });
   cookies.set(REFRESH_COOKIE, session.refresh_token, {
     ...cookieBase,
-    maxAge: 60 * 60 * 24 * 60,
+    maxAge: 60 * 60 * 24 * 30,
   });
 }
 

@@ -14,7 +14,7 @@ export const POST: APIRoute = async ({ locals }) => {
     .eq("completed", false)
     .is("archived_at", null);
 
-  if (readError) return json({ error: readError.message }, 500);
+  if (readError) return json({ error: "Could not load the active tasks." }, 500);
   if (activeTodos?.length) {
     return json({ needsCompletion: true, ids: activeTodos.map((todo) => todo.id) });
   }
@@ -26,12 +26,13 @@ export const POST: APIRoute = async ({ locals }) => {
     .eq("completed", true)
     .is("archived_at", null);
 
-  if (completedReadError) return json({ error: completedReadError.message }, 500);
+  if (completedReadError) return json({ error: "Could not load the completed tasks." }, 500);
 
   const todoIds = (completedTodos || []).map((todo) => todo.id).filter(Boolean);
+  if (!todoIds.length) return json({ ok: true });
   const activityIds = (completedTodos || []).map((todo) => todo.activity_entry_id).filter(Boolean) as string[];
   const activityError = await deleteLinkedTodoActivities(supabase, user.id, todoIds, activityIds);
-  if (activityError) return json({ error: activityError.message }, 500);
+  if (activityError) return json({ error: "Could not reset the linked activity records." }, 500);
 
   const { error } = await supabase
     .from("todos")
@@ -47,6 +48,6 @@ export const POST: APIRoute = async ({ locals }) => {
     .eq("owner_id", user.id)
     .in("id", todoIds);
 
-  if (error) return json({ error: error.message }, 500);
+  if (error) return json({ error: "Could not reopen the tasks." }, 500);
   return json({ ok: true });
 };

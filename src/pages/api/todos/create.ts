@@ -24,6 +24,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
     .from("todos")
     .insert({ owner_id: user.id, title, due_on: dueOn });
 
-  if (error) return json({ error: error.message }, 500);
+  if (error) return json({ error: "Could not create the task." }, 500);
   return json({ ok: true });
 };

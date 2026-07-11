@@ -1,4 +1,5 @@
 import { ACTIVITY_CATEGORIES } from "./types";
+import { isIsoCalendarDate } from "./datetime";
 
 export const TODO_ACTIVITY_CATEGORY = ACTIVITY_CATEGORIES[ACTIVITY_CATEGORIES.length - 1];
 
@@ -11,7 +12,7 @@ export function json(data: unknown, status = 200) {
 
 export function normalizeDate(value: FormDataEntryValue | string | null) {
   const raw = String(value || "").trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+  return isIsoCalendarDate(raw) ? raw : null;
 }
 
 export function normalizeTime(value: FormDataEntryValue | string | null) {
@@ -57,11 +58,11 @@ export function parseTimeRanges(raw: FormDataEntryValue | string | null, fallbac
   const ranges: TimeRange[] = [];
   const source = String(raw || "").trim();
 
-  if (source) {
+  if (source && source.length <= 8192) {
     try {
       const parsed = JSON.parse(source);
       if (Array.isArray(parsed)) {
-        parsed.forEach((item) => {
+        parsed.slice(0, 13).forEach((item) => {
           const start = normalizeTime(item?.start_time ?? item?.start);
           const end = normalizeTime(item?.end_time ?? item?.end);
           if (!start || !end) return;

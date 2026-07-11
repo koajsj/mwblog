@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { safeLocalRedirect } from "../../../lib/redirect";
+import { isUuid } from "../../../lib/security";
 import { createLocalsClient } from "../../../lib/supabase";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
@@ -10,7 +11,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const id = String(form.get("id") || "").trim();
   const rawReturn = String(form.get("return_to") || "").trim();
   const safeReturn = safeLocalRedirect(rawReturn, "/");
-  if (!id) {
+  if (!isUuid(id)) {
     const sep = safeReturn.includes("?") ? "&" : "?";
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Missing comment id.")}`, 303);
   }
@@ -25,7 +26,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
 
   if (error) {
     const sep = safeReturn.includes("?") ? "&" : "?";
-    return redirect(`${safeReturn}${sep}error=${encodeURIComponent(error.message)}`, 303);
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not delete the comment.")}`, 303);
   }
   return redirect(safeReturn, 303);
 };
