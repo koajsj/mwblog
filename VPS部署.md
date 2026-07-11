@@ -1,6 +1,6 @@
 # VPS 一键部署与更新
 
-适用于 Debian 12、已解析到 VPS 公网 IP 的个人域名，以及已经创建好的 Supabase 项目。
+适用于 Debian 12、Cloudflare 托管的 `076113.xyz`，以及已经创建好的 Supabase 项目。
 
 ## 首次部署
 
@@ -10,10 +10,10 @@
 024_switch_fixed_accounts_to_kikou_scoinmic.sql
 ```
 
-然后在 VPS 执行一条命令，把 `love.example.com` 换成自己的域名：
+然后在 VPS 执行一条命令。项目已经把 `076113.xyz` 设为默认域名，不需要再输入域名：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-deploy.sh | sudo bash -s -- love.example.com
+curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-deploy.sh | sudo bash
 ```
 
 脚本只会在首次询问三个 Supabase 值：
@@ -26,7 +26,7 @@ Supabase service role key
 
 其余步骤自动完成：安装 Node.js、Nginx 和 Certbot，拉取代码，执行 `npm ci`、测试和构建，创建两个固定账号，申请 HTTPS 证书，安装 systemd 服务和每日加密备份。
 
-域名必须提前解析到 VPS。HTTPS 证书申请失败时部署会失败，不会把 HTTP 当作成功。
+Cloudflare 中必须先把 `076113.xyz` 的 A 记录指向 VPS。首次部署时建议先使用灰云（仅 DNS），证书申请成功后再打开橙云代理。HTTPS 证书申请失败时部署会失败，不会把 HTTP 当作成功。
 
 ## 固定账号
 
@@ -59,4 +59,4 @@ sudo journalctl -u mwblog -n 100 --no-pager
 sudo systemctl status mwblog-backup.timer
 ```
 
-网站地址为 `https://你的域名`。天气由 VPS 根据访问 IP 自动定位，不需要浏览器位置权限。
+网站地址为 `https://076113.xyz`。天气会识别 Cloudflare 转发的真实访问 IP 自动定位，不需要浏览器位置权限。

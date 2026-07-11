@@ -190,43 +190,125 @@ BACKUP_ENCRYPTION_KEY=...
 npm run dev
 ```
 
-## VPS 自动部署
+## 用 Cloudflare 和 VPS 上线 `076113.xyz`
 
-首次部署在 VPS 上执行：
+下面按第一次接触 VPS 也能照着做的方式写。你只需要准备三样东西：`076113.xyz`、一台 Debian 12 VPS、一个 Supabase 项目。
 
-```bash
-export SUPABASE_URL="https://your-project.supabase.co"
-export SUPABASE_ANON_KEY="your-anon-key"
-export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
-curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-deploy.sh | sudo bash -s -- example.com
-```
+### 第一步：把域名交给 Cloudflare
 
-常用变量：
+1. 登录 Cloudflare，点击 **添加域**，输入 `076113.xyz`。
+2. 套餐选 Free 免费版即可。
+3. Cloudflare 会给你两个 Nameserver 地址。回到购买 `076113.xyz` 的域名商后台，把原来的 DNS 服务器替换成这两个地址。
+4. 等 Cloudflare 显示域名已经激活。通常几分钟到几小时，偶尔可能更久。
+
+这一步的意思很简单：以后 `076113.xyz` 指向哪里，由 Cloudflare 管。
+
+### 第二步：让域名指向 VPS
+
+进入 Cloudflare 的 **DNS -> 记录**，新增一条记录：
 
 ```text
-APP_NAME=mwblog
-APP_DIR=/opt/mwblog
-REPO_URL=https://github.com/koajsj/mwblog.git
-BRANCH=main
-PORT=4321
-APP_USER=mwblog
-APP_ORIGIN=https://example.com
-CERTBOT_EMAIL=admin@example.com
-RUN_SETUP_USERS=1
-RUN_CLIENT_MIGRATION=0
+类型：A
+名称：@
+IPv4 地址：你的 VPS 公网 IPv4
+代理状态：仅 DNS（灰色云朵）
+TTL：自动
 ```
 
-更新部署：
+首次部署先用灰云，方便 VPS 直接申请 HTTPS 证书。确认网站部署成功以后，再把它切换成橙云。
+
+VPS 服务商的防火墙和 Debian 防火墙需要放行：
+
+```text
+22   SSH 登录
+80   HTTP 和证书验证
+443  HTTPS 网站
+```
+
+### 第三步：准备 Supabase
+
+在 Supabase SQL Editor 中，按文件名顺序执行 `supabase/migrations/` 下的 SQL，最后必须执行到：
+
+```text
+024_switch_fixed_accounts_to_kikou_scoinmic.sql
+```
+
+然后进入 **Authentication -> Providers -> Email**，关闭公开注册。网站只允许：
+
+```text
+kikou / Qwer@1432
+scoinmic / Qwer@1432
+```
+
+还要记下 Supabase 项目里的三个值，部署时会问一次：
+
+```text
+Project URL
+anon / publishable key
+service_role key
+```
+
+`service_role key` 只能填进 VPS 的部署提示里，不能发给别人，也不能写到网页前端。
+
+### 第四步：登录 VPS 并一键部署
+
+先从自己的电脑登录 VPS：
+
+```bash
+ssh root@你的VPS公网IP
+```
+
+登录后只运行这一条：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/koajsj/mwblog/main/scripts/vps-deploy.sh | sudo bash
+```
+
+项目已经默认绑定 `076113.xyz`。脚本会依次询问三个 Supabase 值，然后自动完成代码拉取、Node.js、Nginx、HTTPS 证书、依赖安装、测试、构建、固定账号、systemd 服务和每日备份。
+
+看到 `Deployment complete` 后，打开：
+
+```text
+https://076113.xyz
+```
+
+### 第五步：打开 Cloudflare 橙云
+
+网站可以通过 HTTPS 打开后，回到 Cloudflare 的 DNS 页面，把 `076113.xyz` 那条 A 记录从灰云切换为橙云。
+
+然后进入 **SSL/TLS**：
+
+```text
+加密模式：完整（严格） / Full (strict)
+始终使用 HTTPS：开启
+自动 HTTPS 重写：开启
+```
+
+不要选择 Flexible。VPS 已经有真实证书，使用 Full (strict) 才是正确设置。
+
+开启橙云后，天气接口会读取 Cloudflare 传来的真实访问 IP，自动显示访问者所在城市的天气，不会弹浏览器定位授权。
+
+### 以后怎么更新
+
+代码推送到 GitHub `main` 后，登录 VPS，只运行：
 
 ```bash
 sudo mwblog-update
 ```
 
-部署脚本会安装 Node.js 22、拉取代码、校验 `.env`、执行 `npm ci`、测试和构建、初始化 `kikou/scoinmic` 两个账号，并以受限的 `APP_USER` systemd 账号运行服务。HTTPS 默认强制启用，Certbot 或证书签发失败会中止部署。首次部署只需提供域名并按提示输入三个 Supabase 值；以后更新只需执行 `sudo mwblog-update`。
+它会自动拉取代码、执行 `npm ci`、同步固定账号、运行测试、构建、重启和健康检查。失败时会尝试恢复到更新前版本。
+
+### 出问题时看哪里
+
+```bash
+sudo systemctl status mwblog
+sudo journalctl -u mwblog -n 100 --no-pager
+sudo nginx -t
+```
 
 更新脚本会先完成拉取、依赖安装和构建，成功后才重启 systemd 服务。构建或重启失败时会尝试回到更新前的提交并重新构建启动；数据迁移始终需要单独确认，数据库和 Storage 变更不会自动回滚。升级到迁移 `023` 时，先在 Supabase SQL Editor 执行该迁移，再用当前代码运行 `SPACE_PASSPHRASE="旧空间口令" SPACE_RECOVERY_CODE="恢复码" SPACE_NEW_PASSPHRASE="至少14位的新空间口令" npm run migrate:client-encryption`。脚本会把旧 `wc1` 数据、标签和图片升级为用途绑定的 `wc2`，逐项验证后才放行应用。若仍有 `enc:v1` / `MWBLOG_FILE_V1`，只在这次离线迁移中临时提供 `APP_ENCRYPTION_KEY` 并设置 `ALLOW_LEGACY_SERVER_DECRYPTION=1`。
 
-默认访问：
+本地开发默认访问：
 
 ```text
 http://localhost:4321
@@ -292,7 +374,7 @@ kikou / Qwer@1432
 scoinmic / Qwer@1432
 ```
 
-这是引导用默认值。首次部署后应立即在 Supabase Auth 中改成你们自己的密码。再次运行 `npm run setup:users` 只会同步固定身份资料；只有显式设置 `RESET_FIXED_USER_PASSWORDS=1` 才会重置密码。
+VPS 部署和 `sudo mwblog-update` 会自动确保这两个固定账号存在，并把密码保持为上面的值。不要在 Supabase 后台另行创建第三个用户；即使存在其他 Auth 用户，应用和数据库白名单也不会允许其进入网站。
 
 ## 客户端加密
 
@@ -341,7 +423,7 @@ npm run migrate:client-encryption
 
 ## 部署
 
-项目当前推荐使用 VPS 部署。首次部署使用 `scripts/vps-deploy.sh`，后续更新使用 `scripts/vps-update.sh`。脚本会安装 Node.js、拉取 GitHub 代码、校验 `.env`、构建 Astro、安装 systemd 服务、配置 Nginx，并创建每日加密备份任务。
+完整步骤见上面的“用 Cloudflare 和 VPS 上线 `076113.xyz`”。首次部署运行一条远程脚本，后续更新只需 `sudo mwblog-update`。
 
 常用提交流程：
 

@@ -7,7 +7,7 @@ REPO_URL="${REPO_URL:-https://github.com/koajsj/mwblog.git}"
 BRANCH="${BRANCH:-main}"
 PORT="${PORT:-4321}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
-DOMAIN="${DOMAIN:-${1:-}}"
+DOMAIN="${DOMAIN:-${1:-076113.xyz}}"
 APP_USER="${APP_USER:-${APP_NAME}}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/${APP_NAME}}"
 RUN_SETUP_USERS="${RUN_SETUP_USERS:-1}"
@@ -341,7 +341,6 @@ EOF
   $SUDO systemctl enable --now "${APP_NAME}-backup.timer"
 }
 
-prompt_env DOMAIN "Domain name, for example love.example.com"
 DOMAIN="${DOMAIN#http://}"
 DOMAIN="${DOMAIN#https://}"
 DOMAIN="${DOMAIN%%/*}"
