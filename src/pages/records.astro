@@ -16,7 +16,7 @@ const canCreate = !!user;
 const [{ data: recordsData }, { data: photosData }, { data: authorRows }] = await Promise.all([
   store
     .from("life_records")
-    .select("id,owner_id,record_on,mood,body,created_at,profiles(display_name,author_key)")
+    .select("id,owner_id,record_on,mood,body,created_at,updated_at,profiles(display_name,author_key)")
     .order("record_on", { ascending: false })
     .order("created_at", { ascending: false }),
   store
@@ -79,6 +79,25 @@ function recordTime(value: string) {
   return p ? `${p.hour}:${p.minute}` : "";
 }
 
+function recordWasEdited(record: LifeRecord) {
+  const updatedAt = record.updated_at || record.created_at;
+  return Date.parse(updatedAt) - Date.parse(record.created_at) > 1000;
+}
+
+function recordActivityLabel(record: LifeRecord) {
+  const updatedAt = record.updated_at || record.created_at;
+  return `${recordWasEdited(record) ? "Updated" : "Shared"} ${recordTime(updatedAt)}`;
+}
+
+function recordCardState(record: LifeRecord) {
+  return recordWasEdited(record) ? "Edited" : "New memory";
+}
+
+const latestRecord = records[0];
+const latestRecordAuthor = latestRecord
+  ? authorDisplayName(latestRecord.profiles, (latestRecord.profiles?.author_key || "white") as AuthorKey, authorNames)
+  : "";
+
 const today = shanghaiDateKey();
 const moods: Array<{ key: string; label: string }> = [
   { key: "happy", label: "😄 Happy" },
@@ -104,6 +123,7 @@ const deleted = Astro.url.searchParams.get("deleted");
     <header class="rec-header">
       <h1 class="rec-title">📖 Records</h1>
       <p class="rec-subtitle">One page a day, slowly collecting ordinary moments</p>
+      {latestRecord && <p class="rec-latest">Last shared by {latestRecordAuthor} · {recordActivityLabel(latestRecord)}</p>}
       {canCreate ? (
         <button class="rec-add-toggle" id="recAddToggle" type="button" aria-expanded="false" aria-controls="recForm">
           ＋ Add record
@@ -154,6 +174,7 @@ const deleted = Astro.url.searchParams.get("deleted");
             ＋ Choose photos (multiple allowed)
             <input name="photos" id="recPhotos" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden />
           </label>
+          <input name="photo_event" id="recPhotoEvent" type="text" maxlength="80" placeholder="Moment / event name for these photos (optional)" />
           <p class="rec-file__hint" id="recPhotoHint">Photos will also appear in Photos.</p>
         </div>
 
@@ -170,6 +191,10 @@ const deleted = Astro.url.searchParams.get("deleted");
       <button class="rec-filter__btn" type="button" data-who="white">🐶 {authorNames.white}</button>
       <button class="rec-filter__btn" type="button" data-who="brown">🐕 {authorNames.brown}</button>
     </nav>
+    <p class="rec-private-notice is-hidden" id="recPrivateNotice" role="status" aria-live="polite">
+      <span id="recPrivateNoticeText"></span>
+      <button id="recPrivateRetry" type="button">Try again</button>
+    </p>
 
     <div class="rec-timeline" id="recTimeline">
       {dates.length ? dates.map((date) => {
@@ -179,11 +204,16 @@ const deleted = Astro.url.searchParams.get("deleted");
           if (ak !== bk) return ak < bk ? -1 : 1;
           return b.created_at.localeCompare(a.created_at);
         });
+        const whiteCount = dayRecords.filter((record) => (record.profiles?.author_key || "white") === "white").length;
+        const brownCount = dayRecords.filter((record) => (record.profiles?.author_key || "white") === "brown").length;
         return (
-          <section class="rec-day" data-date={date} data-whites={dayRecords.filter((r) => (r.profiles?.author_key || "white") === "white").length} data-browns={dayRecords.filter((r) => (r.profiles?.author_key || "white") === "brown").length}>
+          <section class="rec-day" data-date={date} data-whites={whiteCount} data-browns={brownCount}>
             <div class="rec-day__label">
               <span class="rec-day__date">{prettyDate(date)}</span>
               <span class="rec-day__count">{dayRecords.length} items</span>
+              <span class="rec-day__together" title={whiteCount && brownCount ? "Both of you left a memory today" : "A shared memory from one of you"}>
+                🐶 {whiteCount} · 🐕 {brownCount}
+              </span>
             </div>
             <div class="rec-day__notes">
               {dayRecords.map((record) => {
@@ -197,7 +227,10 @@ const deleted = Astro.url.searchParams.get("deleted");
                       <span class="note__tape" aria-hidden="true"></span>
                       <div class="note__top">
                         <span class="note__author">{author === "white" ? "🐶" : "🐕"} {authorDisplayName(record.profiles, author, authorNames)}</span>
-                        <span class="note__time" title={record.created_at}>{recordTime(record.created_at)}</span>
+                        <span class="note__meta">
+                          <span class="note__time" title={record.created_at}>{recordTime(record.created_at)}</span>
+                          <span class="note__updated" title={record.updated_at || record.created_at}>{recordCardState(record)}</span>
+                        </span>
                         <span class="note__mood">{MOOD_LABELS[record.mood] || record.mood}</span>
                       </div>
                       {samePhotos.length > 0 && (
@@ -281,6 +314,8 @@ const deleted = Astro.url.searchParams.get("deleted");
     <button class="rec-lb__nav rec-lb__nav--prev" id="recLbPrev" type="button" aria-label="Previous photo">‹</button>
     <button class="rec-lb__nav rec-lb__nav--next" id="recLbNext" type="button" aria-label="Next photo">›</button>
     <img class="rec-lb__img" id="recLbImg" alt="" />
+    <p class="rec-lb__status" id="recLbStatus" role="status" aria-live="polite"></p>
+    <button class="rec-lb__retry is-hidden" id="recLbRetry" type="button">Retry photo</button>
   </div>
 
   <script id="photoData" type="application/json" set:html={serializeJsonForScript(
@@ -304,6 +339,7 @@ const deleted = Astro.url.searchParams.get("deleted");
           const recordOn = (form.querySelector('input[name="record_on"]') as HTMLInputElement | null)?.value.trim() || "";
           const mood = (form.querySelector('input[name="mood"]') as HTMLInputElement | null)?.value.trim() || "happy";
           const body = (form.querySelector('textarea[name="body"]') as HTMLTextAreaElement | null)?.value.trim() || "";
+          const photoEvent = (form.querySelector('input[name="photo_event"]') as HTMLInputElement | null)?.value.trim() || "";
           const fileInput = form.querySelector('input[name="photos"]') as HTMLInputElement | null;
           const files = Array.from(fileInput?.files || []);
 
@@ -322,6 +358,7 @@ const deleted = Astro.url.searchParams.get("deleted");
             if (!privateSpace?.encryptText) throw new Error("Private-space encryption is not ready.");
             const encryptedBody = await privateSpace.encryptText(body, "record.body");
             const encryptedCaption = await privateSpace.encryptText((body || "Photo").slice(0, 120), "photo.caption");
+            const encryptedPhotoTitle = photoEvent ? await privateSpace.encryptText(photoEvent, "photo.title") : "";
             const photos = [];
             for (let i = 0; i < files.length; i++) {
               if (status) status.textContent = `Uploading photo ${i + 1} of ${files.length}…`;
@@ -331,7 +368,7 @@ const deleted = Astro.url.searchParams.get("deleted");
             const res = await fetch("/api/records/create", {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ record_on: recordOn, mood, body: encryptedBody, photo_caption: encryptedCaption, photos }),
+              body: JSON.stringify({ record_on: recordOn, mood, body: encryptedBody, photo_caption: encryptedCaption, photo_title: encryptedPhotoTitle, photos }),
             });
             if (!res.ok) {
               const data = await res.json().catch(() => ({}));
@@ -357,10 +394,56 @@ const deleted = Astro.url.searchParams.get("deleted");
         var photoMap = {};
         try { photoMap = JSON.parse(document.getElementById("photoData").textContent || "{}"); } catch (e) {}
         var privateSpace = window.OurNestPrivate || null;
+        var timelineEl = document.getElementById("recTimeline");
+        var privateNotice = document.getElementById("recPrivateNotice");
+        var privateNoticeText = document.getElementById("recPrivateNoticeText");
+        var privateRetry = document.getElementById("recPrivateRetry");
+
+        function updatePrivateNotice() {
+          if (!timelineEl || !privateNotice || !privateNoticeText) return;
+          var textErrors = timelineEl.querySelectorAll('[data-private-text][data-private-loaded="error"]').length;
+          var photoErrors = timelineEl.querySelectorAll('[data-private-photo][data-private-loaded="error"]');
+          if (!textErrors && !photoErrors.length) {
+            privateNotice.classList.add("is-hidden");
+            return;
+          }
+          var networkError = Array.prototype.some.call(photoErrors, function (node) {
+            return /load the encrypted photo|failed to fetch|network/i.test(node.getAttribute("data-private-error") || "");
+          });
+          privateNoticeText.textContent = networkError
+            ? "Some photos could not download. Check your connection, then try again."
+            : "Some private memories could not be unlocked. Refresh or unlock the private space again, then try once more.";
+          privateNotice.classList.remove("is-hidden");
+        }
+
+        function hydrateTimeline() {
+          if (!privateSpace || !privateSpace.ready || !timelineEl) return Promise.reject(new Error("Private space is unavailable."));
+          return privateSpace.ready().then(function () {
+            return Promise.all([
+              privateSpace.decryptTextNodes(timelineEl),
+              privateSpace.hydratePhotoNodes(timelineEl)
+            ]);
+          }).then(updatePrivateNotice);
+        }
+
+        if (privateRetry) {
+          privateRetry.addEventListener("click", function () {
+            privateRetry.disabled = true;
+            privateRetry.textContent = "Trying…";
+            hydrateTimeline().catch(function () {
+              if (privateNotice && privateNoticeText) {
+                privateNoticeText.textContent = "Private space is not ready yet. Unlock it, then try again.";
+                privateNotice.classList.remove("is-hidden");
+              }
+            }).finally(function () {
+              privateRetry.disabled = false;
+              privateRetry.textContent = "Try again";
+            });
+          });
+        }
 
         // 筛选
         var filterEl = document.getElementById("recFilter");
-        var timelineEl = document.getElementById("recTimeline");
         var filterWho = "all";
         function applyFilter() {
           var days = timelineEl.querySelectorAll(".rec-day");
@@ -418,6 +501,8 @@ const deleted = Astro.url.searchParams.get("deleted");
         var lbImg = document.getElementById("recLbImg");
         var lbPrev = document.getElementById("recLbPrev");
         var lbNext = document.getElementById("recLbNext");
+        var lbStatus = document.getElementById("recLbStatus");
+        var lbRetry = document.getElementById("recLbRetry");
         var lbList = [];
         var lbIndex = 0;
         var lbReturnFocus = null;
@@ -425,11 +510,29 @@ const deleted = Astro.url.searchParams.get("deleted");
         function showLb() {
           var p = lbList[lbIndex];
           if (!p) return;
+          lbImg.removeAttribute("src");
+          lbImg.setAttribute("data-private-loaded", "");
+          if (lbStatus) lbStatus.textContent = "Loading private photo…";
+          if (lbRetry) lbRetry.classList.add("is-hidden");
           if (privateSpace && privateSpace.hydratePhotoNodes) {
             lbImg.setAttribute("data-private-photo", p.url);
-            privateSpace.hydratePhotoNodes(lbEl).catch(function () {
-              lbImg.removeAttribute("src");
+            privateSpace.hydratePhotoNodes(lbEl).then(function () {
+              if (lbImg.getAttribute("data-private-loaded") === "error") {
+                var failedToDownload = /load the encrypted photo|failed to fetch|network/i.test(lbImg.getAttribute("data-private-error") || "");
+                if (lbStatus) lbStatus.textContent = failedToDownload
+                  ? "The encrypted photo could not download. Check your connection and retry."
+                  : "This photo could not be decrypted. Refresh or unlock the private space again, then retry.";
+                if (lbRetry) lbRetry.classList.remove("is-hidden");
+                return;
+              }
+              if (lbStatus) lbStatus.textContent = "";
+            }).catch(function () {
+              if (lbStatus) lbStatus.textContent = "Private space is not ready. Refresh and unlock it again, then retry.";
+              if (lbRetry) lbRetry.classList.remove("is-hidden");
             });
+          } else {
+            if (lbStatus) lbStatus.textContent = "Private space is unavailable. Refresh and unlock it again, then retry.";
+            if (lbRetry) lbRetry.classList.remove("is-hidden");
           }
         }
         function openLb(list, idx) {
@@ -474,6 +577,7 @@ const deleted = Astro.url.searchParams.get("deleted");
           document.getElementById("recLbClose").addEventListener("click", closeLb);
           lbPrev.addEventListener("click", function () { lbStep(-1); });
           lbNext.addEventListener("click", function () { lbStep(1); });
+          if (lbRetry) lbRetry.addEventListener("click", showLb);
           lbEl.addEventListener("click", function (e) { if (e.target === lbEl) closeLb(); });
         }
 
@@ -516,14 +620,12 @@ const deleted = Astro.url.searchParams.get("deleted");
             photoHint.textContent = count ? ("Selected " + count + " photos. They will also appear in Photos.") : "Photos will also appear in Photos.";
           });
         }
-        if (privateSpace && privateSpace.ready) {
-          privateSpace.ready().then(function () {
-            return Promise.all([
-              privateSpace.decryptTextNodes(document.getElementById("recTimeline")),
-              privateSpace.hydratePhotoNodes(document.getElementById("recTimeline"))
-            ]);
-          }).catch(function () {});
-        }
+        hydrateTimeline().catch(function () {
+          if (privateNotice && privateNoticeText) {
+            privateNoticeText.textContent = "Private space is not ready yet. Unlock it, then try again.";
+            privateNotice.classList.remove("is-hidden");
+          }
+        });
         document.querySelectorAll(".cmt-form").forEach(function (commentForm) {
           commentForm.addEventListener("submit", function (event) {
             event.preventDefault();

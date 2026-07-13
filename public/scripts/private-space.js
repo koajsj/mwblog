@@ -900,13 +900,26 @@
     return ensureReady().then(function () {
       var nodes = scope.querySelectorAll("[data-private-text]");
       return Promise.all(Array.prototype.map.call(nodes, function (node) {
+        var encryptedValue = node.getAttribute("data-private-text") || "";
+        var isEncrypted = encryptedValue.indexOf(TEXT_PREFIX) === 0
+          || encryptedValue.indexOf(PREVIOUS_TEXT_PREFIX) === 0
+          || encryptedValue.indexOf(LEGACY_TEXT_PREFIX) === 0;
         node.setAttribute("data-private-loaded", "loading");
-        return decryptText(node.getAttribute("data-private-text") || "", node.getAttribute("data-private-context") || "").then(function (value) {
+        node.removeAttribute("data-private-error");
+        return decryptText(encryptedValue, node.getAttribute("data-private-context") || "").then(function (value) {
+          var unavailable = isEncrypted && (value === "[Encrypted content unavailable]" || value === "[Encrypted content needs migration]");
+          if (unavailable) {
+            node.textContent = node.getAttribute("data-private-error-message") || "This private memory could not be unlocked. Refresh and unlock the private space again.";
+            node.setAttribute("data-private-loaded", "error");
+            node.setAttribute("data-private-error", value);
+            return;
+          }
           node.textContent = value || node.getAttribute("data-private-fallback") || "";
           node.setAttribute("data-private-loaded", "true");
         }).catch(function (error) {
+          node.textContent = node.getAttribute("data-private-error-message") || "This private memory could not be unlocked. Refresh and unlock the private space again.";
           node.setAttribute("data-private-loaded", "error");
-          throw error;
+          node.setAttribute("data-private-error", error instanceof Error ? error.message : "Could not decrypt private content.");
         });
       }));
     });
@@ -935,7 +948,9 @@
       return Promise.all(Array.prototype.map.call(nodes, function (node) {
         var url = node.getAttribute("data-private-photo");
         if (!url) return Promise.resolve();
+        if (node.getAttribute("data-private-loaded") === "true") return Promise.resolve();
         node.setAttribute("data-private-loaded", "loading");
+        node.removeAttribute("data-private-error");
         return fetchPhotoBlobUrl(url).then(function (blobUrl) {
           // A reused image node (the photo lightbox) may have moved on while
           // this encrypted file was being fetched. Never paint stale content.
@@ -954,9 +969,10 @@
           if (node.getAttribute("data-private-photo") === url) {
             node.setAttribute("data-private-loaded", "true");
           }
-        }).catch(function () {
+        }).catch(function (error) {
           if (node.getAttribute("data-private-photo") === url) {
             node.setAttribute("data-private-loaded", "error");
+            node.setAttribute("data-private-error", error instanceof Error ? error.message : "Could not load the private photo.");
           }
         });
       }));

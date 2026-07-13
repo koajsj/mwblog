@@ -43,10 +43,23 @@ photos.forEach((p) => {
   byDate.set(key, list);
 });
 const dates = Array.from(byDate.keys()).sort((a, b) => b.localeCompare(a));
+const byMonth = new Map<string, string[]>();
+dates.forEach((date) => {
+  const month = date.slice(0, 7);
+  const monthDates = byMonth.get(month) || [];
+  monthDates.push(date);
+  byMonth.set(month, monthDates);
+});
+const months = Array.from(byMonth.keys()).sort((a, b) => b.localeCompare(a));
 
 function prettyDate(value: string) {
   const [, mm, dd] = value.split("-");
   return `${Number(mm)}/${Number(dd)}`;
+}
+
+function prettyMonth(value: string) {
+  const [year, month] = value.split("-");
+  return `${year} / ${Number(month)}`;
 }
 
 const today = shanghaiDateKey();
@@ -107,8 +120,19 @@ const deleted = Astro.url.searchParams.get("deleted");
           <a class="pw-upload-btn" href="/auth/login">Log in to upload</a>
         )}
       </div>
+      <div class="pw-group-toggle" role="tablist" aria-label="Group photos">
+        <button class="is-active" id="pwMonthToggle" type="button" role="tab" aria-selected="true">By month</button>
+        <button id="pwEventToggle" type="button" role="tab" aria-selected="false">By event</button>
+      </div>
       <div class="pw-stacks" id="pwStacks">
-        {dates.length ? dates.map((date) => {
+        {months.length ? months.map((month) => (
+          <section class="pw-month" aria-label={`${prettyMonth(month)} photos`}>
+            <header class="pw-month__head">
+              <h2>{prettyMonth(month)}</h2>
+              <span>{(byMonth.get(month) || []).reduce((total, date) => total + (byDate.get(date) || []).length, 0)} photos</span>
+            </header>
+            <div class="pw-month__stacks">
+              {(byMonth.get(month) || []).map((date) => {
           const list = byDate.get(date) || [];
           const preview = list.slice(0, 4);
           const firstAuthor = (list[0]?.profiles?.author_key || "white") as AuthorKey;
@@ -134,9 +158,18 @@ const deleted = Astro.url.searchParams.get("deleted");
               </div>
             </div>
           );
-        }) : <div class="pw-empty">No photos yet. Upload the first one above.</div>}
+              })}
+            </div>
+          </section>
+        )) : <div class="pw-empty">No photos yet. Upload the first one above.</div>}
       </div>
+      <div class="pw-event-groups is-hidden" id="pwEventGroups" aria-live="polite"></div>
     </section>
+
+    <p class="pw-private-notice is-hidden" id="pwPrivateNotice" role="status" aria-live="polite">
+      <span id="pwPrivateNoticeText"></span>
+      <button id="pwPrivateRetry" type="button">Try again</button>
+    </p>
 
     <section class="pw-detail is-hidden" id="pwDetail">
       <div class="pw-detail__bar">
@@ -168,8 +201,8 @@ const deleted = Astro.url.searchParams.get("deleted");
           <input class="pw-date" name="taken_on" type="date" value={today} />
         </div>
         <div class="pw-field">
-          <span class="pw-field__label">Caption (optional)</span>
-          <input class="pw-date" name="title" type="text" maxlength="80" placeholder="A small photo" />
+          <span class="pw-field__label">Moment / event name (optional)</span>
+          <input class="pw-date" name="title" type="text" maxlength="80" placeholder="e.g. Weekend walk" />
         </div>
         <label class="pw-filebtn">
           ＋ Choose photo
@@ -192,6 +225,7 @@ const deleted = Astro.url.searchParams.get("deleted");
       <img class="pw-lb__img" id="pwLbImg" alt="" />
       <figcaption class="pw-lb__cap" id="pwLbCap"></figcaption>
       <div class="pw-lb__diary is-hidden" id="pwLbDiary"></div>
+      <button class="pw-lb__retry is-hidden" id="pwLbRetry" type="button">Try photo again</button>
     </figure>
     {user && (
       <form class="pw-lb__delete-form is-hidden" id="pwLbDeleteForm" action="/api/photos/delete" method="post" data-confirm="Delete this photo? This cannot be undone." data-confirm-title="Delete photo?">
@@ -267,6 +301,9 @@ const deleted = Astro.url.searchParams.get("deleted");
         var bundles = {};
         try { bundles = JSON.parse(document.getElementById("photoBundles").textContent || "{}"); } catch (e) {}
         var privateSpace = window.OurNestPrivate || null;
+        var privateNotice = document.getElementById("pwPrivateNotice");
+        var privateNoticeText = document.getElementById("pwPrivateNoticeText");
+        var privateRetry = document.getElementById("pwPrivateRetry");
 
         var wallEl = document.getElementById("pwWall");
         var detailEl = document.getElementById("pwDetail");
@@ -274,18 +311,162 @@ const deleted = Astro.url.searchParams.get("deleted");
         var detailDate = document.getElementById("pwDetailDate");
         var detailCount = document.getElementById("pwDetailCount");
         var backBtn = document.getElementById("pwBackBtn");
+        var stacksEl = document.getElementById("pwStacks");
+        var eventGroupsEl = document.getElementById("pwEventGroups");
+        var monthToggle = document.getElementById("pwMonthToggle");
+        var eventToggle = document.getElementById("pwEventToggle");
         var detailReturnFocus = null;
+        var eventBuildPromise = null;
+
+        function activePhotoScope() {
+          return detailEl && !detailEl.classList.contains("is-hidden") ? gridEl : wallEl;
+        }
+
+        function updatePrivateNotice() {
+          if (!privateNotice || !privateNoticeText) return;
+          var scope = activePhotoScope();
+          var failedPhotos = scope ? scope.querySelectorAll('[data-private-photo][data-private-loaded="error"]') : [];
+          if (!failedPhotos.length) {
+            privateNotice.classList.add("is-hidden");
+            return;
+          }
+          var networkError = Array.prototype.some.call(failedPhotos, function (node) {
+            return /load the encrypted photo|failed to fetch|network/i.test(node.getAttribute("data-private-error") || "");
+          });
+          privateNoticeText.textContent = networkError
+            ? "Some photos could not download. Check your connection, then try again."
+            : "Some photos could not be decrypted. Refresh or unlock the private space again, then try once more.";
+          privateNotice.classList.remove("is-hidden");
+        }
+
+        function hydratePhotos(scope) {
+          if (!privateSpace || !privateSpace.ready || !scope) return Promise.reject(new Error("Private space is unavailable."));
+          return privateSpace.ready().then(function () {
+            return privateSpace.hydratePhotoNodes(scope);
+          }).then(updatePrivateNotice);
+        }
+
+        if (privateRetry) {
+          privateRetry.addEventListener("click", function () {
+            privateRetry.disabled = true;
+            privateRetry.textContent = "Trying…";
+            hydratePhotos(activePhotoScope()).catch(function () {
+              if (privateNotice && privateNoticeText) {
+                privateNoticeText.textContent = "Private space is not ready yet. Unlock it, then try again.";
+                privateNotice.classList.remove("is-hidden");
+              }
+            }).finally(function () {
+              privateRetry.disabled = false;
+              privateRetry.textContent = "Try again";
+            });
+          });
+        }
 
         function prettyDate(s) {
           var p = s.split("-");
           return Number(p[1]) + "/" + Number(p[2]);
         }
 
+        function eventLabel(value) {
+          var label = String(value || "").replace(/\s+/g, " ").trim();
+          if (!label || /^\[Encrypted content (unavailable|needs migration)\]$/.test(label)) return "Everyday moments";
+          return label;
+        }
+
+        function setGroupView(view) {
+          var showEvents = view === "event";
+          if (stacksEl) stacksEl.classList.toggle("is-hidden", showEvents);
+          if (eventGroupsEl) eventGroupsEl.classList.toggle("is-hidden", !showEvents);
+          if (monthToggle) {
+            monthToggle.classList.toggle("is-active", !showEvents);
+            monthToggle.setAttribute("aria-selected", String(!showEvents));
+          }
+          if (eventToggle) {
+            eventToggle.classList.toggle("is-active", showEvents);
+            eventToggle.setAttribute("aria-selected", String(showEvents));
+          }
+          if (showEvents) buildEventGroups().catch(function () {});
+        }
+
+        function buildEventGroups() {
+          if (eventBuildPromise) return eventBuildPromise;
+          if (!eventGroupsEl || !privateSpace || !privateSpace.ready || !privateSpace.decryptText) {
+            if (eventGroupsEl) eventGroupsEl.textContent = "Unlock the private space to group photos by event.";
+            return Promise.reject(new Error("Private space is unavailable."));
+          }
+          eventGroupsEl.textContent = "Unlocking event names…";
+          var entries = [];
+          Object.keys(bundles).forEach(function (date) {
+            (bundles[date] || []).forEach(function (item) {
+              entries.push({ date: date, item: item });
+            });
+          });
+          eventBuildPromise = privateSpace.ready().then(function () {
+            return Promise.all(entries.map(function (entry) {
+              return privateSpace.decryptText(entry.item.title || "", "photo.title").then(function (title) {
+                return { date: entry.date, item: entry.item, label: eventLabel(title) };
+              });
+            }));
+          }).then(function (eventPhotos) {
+            var groups = new Map();
+            eventPhotos.forEach(function (entry) {
+              var key = entry.label.toLocaleLowerCase();
+              var group = groups.get(key) || { label: entry.label, items: [] };
+              group.items.push(entry.item);
+              groups.set(key, group);
+            });
+            eventGroupsEl.textContent = "";
+            if (!groups.size) {
+              var empty = document.createElement("p");
+              empty.className = "pw-event-empty";
+              empty.textContent = "No photos have been saved yet.";
+              eventGroupsEl.appendChild(empty);
+              return;
+            }
+            groups.forEach(function (group) {
+              var card = document.createElement("button");
+              card.type = "button";
+              card.className = "pw-event-card";
+              var preview = document.createElement("img");
+              preview.className = "pw-event-card__photo";
+              preview.alt = "Private photo";
+              preview.loading = "lazy";
+              preview.setAttribute("data-private-photo", group.items[0].url);
+              var meta = document.createElement("span");
+              var name = document.createElement("span");
+              name.className = "pw-event-card__name";
+              name.textContent = group.label;
+              var count = document.createElement("span");
+              count.className = "pw-event-card__count";
+              count.textContent = group.items.length + (group.items.length === 1 ? " photo" : " photos");
+              meta.appendChild(name);
+              meta.appendChild(count);
+              card.appendChild(preview);
+              card.appendChild(meta);
+              card.addEventListener("click", function () { openPhotoList(group.label, group.items); });
+              eventGroupsEl.appendChild(card);
+            });
+            return hydratePhotos(eventGroupsEl);
+          }).catch(function (error) {
+            eventBuildPromise = null;
+            eventGroupsEl.textContent = "Event names could not be unlocked. Refresh or unlock the private space again, then retry.";
+            throw error;
+          });
+          return eventBuildPromise;
+        }
+
+        if (monthToggle) monthToggle.addEventListener("click", function () { setGroupView("month"); });
+        if (eventToggle) eventToggle.addEventListener("click", function () { setGroupView("event"); });
+
         function openDetail(date) {
           var list = bundles[date] || [];
+          openPhotoList(prettyDate(date), list);
+        }
+
+        function openPhotoList(label, list) {
           if (!list.length) return;
           detailReturnFocus = document.activeElement;
-          detailDate.textContent = prettyDate(date);
+          detailDate.textContent = label;
           detailCount.textContent = list.length + " photos";
           gridEl.textContent = "";
           list.forEach(function (item, idx) {
@@ -295,16 +476,12 @@ const deleted = Astro.url.searchParams.get("deleted");
             card.type = "button";
             card.className = "pw-photo-card";
             card.setAttribute("data-idx", idx);
-            card.setAttribute("data-date", date);
             var img = document.createElement("img");
             img.alt = "Private photo";
             img.loading = "lazy";
             img.setAttribute("data-private-photo", item.url);
             card.appendChild(img);
-            if (privateSpace && privateSpace.hydratePhotoNodes) {
-              privateSpace.hydratePhotoNodes(card).catch(function () {});
-            }
-            card.addEventListener("click", function () { openLb(date, idx); });
+            card.addEventListener("click", function () { openLbList(list, idx); });
             wrap.appendChild(card);
             if (item.canDelete) {
               var form = document.createElement("form");
@@ -335,6 +512,7 @@ const deleted = Astro.url.searchParams.get("deleted");
           });
           wallEl.classList.add("is-hidden");
           detailEl.classList.remove("is-hidden");
+          hydratePhotos(gridEl).catch(function () {});
           window.scrollTo({ top: 0, behavior: "smooth" });
           if (backBtn) window.setTimeout(function () { backBtn.focus(); }, 0);
         }
@@ -342,6 +520,7 @@ const deleted = Astro.url.searchParams.get("deleted");
         function closeDetail() {
           detailEl.classList.add("is-hidden");
           wallEl.classList.remove("is-hidden");
+          updatePrivateNotice();
           if (detailReturnFocus && detailReturnFocus.focus) detailReturnFocus.focus();
         }
 
@@ -382,11 +561,12 @@ const deleted = Astro.url.searchParams.get("deleted");
         if (uploadBtn) uploadBtn.addEventListener("click", openModal);
         if (modalMask) modalMask.addEventListener("click", closeModal);
         if (modalClose) modalClose.addEventListener("click", closeModal);
-        if (privateSpace && privateSpace.ready) {
-          privateSpace.ready().then(function () {
-            return privateSpace.hydratePhotoNodes(document.getElementById("pwWall"));
-          }).catch(function () {});
-        }
+        hydratePhotos(wallEl).catch(function () {
+          if (privateNotice && privateNoticeText) {
+            privateNoticeText.textContent = "Private space is not ready yet. Unlock it, then try again.";
+            privateNotice.classList.remove("is-hidden");
+          }
+        });
 
         // 灯箱 + slicebox 翻转
         var lbEl = document.getElementById("pwLb");
@@ -395,6 +575,7 @@ const deleted = Astro.url.searchParams.get("deleted");
         var lbDiary = document.getElementById("pwLbDiary");
         var lbPrev = document.getElementById("pwLbPrev");
         var lbNext = document.getElementById("pwLbNext");
+        var lbRetry = document.getElementById("pwLbRetry");
         var lbDeleteForm = document.getElementById("pwLbDeleteForm");
         var lbDeleteId = document.getElementById("pwLbDeleteId");
         var lbList = [], lbIndex = 0;
@@ -423,6 +604,13 @@ const deleted = Astro.url.searchParams.get("deleted");
             item.diary && privateSpace && privateSpace.decryptText ? privateSpace.decryptText(item.diary.body || "", "record.body") : Promise.resolve(item.diary && item.diary.body || ""),
           ]).then(function (values) {
             if (token !== lbRenderToken) return;
+            if (values.some(function (value) { return /^\[Encrypted content (unavailable|needs migration)\]$/.test(value); })) {
+              lbCap.textContent = "A private caption could not be unlocked. Refresh or unlock the private space again, then retry.";
+              lbDiary.classList.add("is-hidden");
+              lbDiary.textContent = "";
+              if (lbRetry) lbRetry.classList.remove("is-hidden");
+              return;
+            }
             lbCap.textContent = values[0] || values[1] || "";
             if (item.diary) {
               lbDiary.classList.remove("is-hidden");
@@ -431,6 +619,12 @@ const deleted = Astro.url.searchParams.get("deleted");
               lbDiary.classList.add("is-hidden");
               lbDiary.innerHTML = "";
             }
+          }).catch(function () {
+            if (token !== lbRenderToken) return;
+            lbCap.textContent = "A private caption could not be unlocked. Refresh or unlock the private space again, then retry.";
+            lbDiary.classList.add("is-hidden");
+            lbDiary.textContent = "";
+            if (lbRetry) lbRetry.classList.remove("is-hidden");
           });
         }
 
@@ -439,31 +633,42 @@ const deleted = Astro.url.searchParams.get("deleted");
           if (!item) return;
           var token = ++lbRenderToken;
           lbImg.removeAttribute("src");
+          lbImg.setAttribute("data-private-loaded", "");
           lbImg.style.visibility = "";
           lbCap.textContent = "Loading private photo…";
           lbDiary.classList.add("is-hidden");
           lbDiary.textContent = "";
+          if (lbRetry) lbRetry.classList.add("is-hidden");
           if (privateSpace && privateSpace.hydratePhotoNodes) {
             lbImg.setAttribute("data-private-photo", item.url);
             privateSpace.hydratePhotoNodes(lbEl).then(function () {
               if (token !== lbRenderToken) return;
               if (lbImg.getAttribute("data-private-loaded") === "error") {
-                lbCap.textContent = "Could not open this private photo. Please try again.";
+                var failedToDownload = /load the encrypted photo|failed to fetch|network/i.test(lbImg.getAttribute("data-private-error") || "");
+                lbCap.textContent = failedToDownload
+                  ? "The encrypted photo could not download. Check your connection and retry."
+                  : "This photo could not be decrypted. Refresh or unlock the private space again, then retry.";
+                if (lbRetry) lbRetry.classList.remove("is-hidden");
                 return;
               }
               lbImg.style.visibility = "";
               renderLbMeta(item, token);
             }).catch(function () {
               if (token === lbRenderToken) {
-                lbCap.textContent = "Could not open this private photo. Please try again.";
+                lbCap.textContent = "This private photo could not be opened. Check your connection and retry.";
+                if (lbRetry) lbRetry.classList.remove("is-hidden");
               }
             });
+          } else {
+            lbCap.textContent = "Private space is unavailable. Refresh and unlock it again, then retry.";
+            if (lbRetry) lbRetry.classList.remove("is-hidden");
           }
         }
 
-        function openLb(date, idx) {
+        function openLbList(list, idx) {
           lbReturnFocus = document.activeElement;
-          lbList = bundles[date] || [];
+          lbList = list || [];
+          if (!lbList.length) return;
           lbIndex = idx;
           lbGen++;
           sliceBusy = false;
@@ -654,7 +859,22 @@ const deleted = Astro.url.searchParams.get("deleted");
         document.getElementById("pwLbClose").addEventListener("click", closeLb);
         lbPrev.addEventListener("click", function () { lbStep(-1); });
         lbNext.addEventListener("click", function () { lbStep(1); });
+        if (lbRetry) lbRetry.addEventListener("click", showLb);
         lbEl.addEventListener("click", function (e) { if (e.target === lbEl) closeLb(); });
+        var swipeStart = null;
+        lbEl.addEventListener("pointerdown", function (event) {
+          if (event.pointerType !== "touch" || !event.target.closest(".pw-lb__stage")) return;
+          swipeStart = { x: event.clientX, y: event.clientY };
+        });
+        lbEl.addEventListener("pointerup", function (event) {
+          if (!swipeStart || event.pointerType !== "touch") return;
+          var deltaX = event.clientX - swipeStart.x;
+          var deltaY = event.clientY - swipeStart.y;
+          swipeStart = null;
+          if (Math.abs(deltaX) < 48 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+          lbStep(deltaX < 0 ? 1 : -1);
+        });
+        lbEl.addEventListener("pointercancel", function () { swipeStart = null; });
         document.addEventListener("keydown", function (e) {
           if (e.key === "Escape" && modal && !modal.classList.contains("is-hidden")) closeModal();
         });
@@ -667,6 +887,7 @@ const deleted = Astro.url.searchParams.get("deleted");
         width: 100%;
       }
       .pw-photo-card {
+        position: relative;
         width: 100%;
         border: none;
         padding: 0;

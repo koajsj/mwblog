@@ -103,6 +103,60 @@ body {
   justify-content: center;
   margin: 20px 0 46px;
 }
+.pw-group-toggle {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: -24px 0 34px;
+}
+.pw-group-toggle button {
+  min-height: 34px;
+  padding: 7px 13px;
+  border: 1px solid rgba(122, 166, 212, 0.25);
+  border-radius: 999px;
+  background: rgba(255,255,255,.56);
+  color: #718299;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pw-group-toggle button.is-active {
+  border-color: transparent;
+  background: #ffffff;
+  color: #4f7fa9;
+  box-shadow: 0 4px 12px rgba(70, 80, 110, 0.12);
+}
+.pw-private-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: min(100%, 620px);
+  margin: 0 auto 28px;
+  padding: 10px 13px;
+  border: 1px solid rgba(197, 137, 97, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 250, 244, 0.8);
+  color: #8a6247;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.55;
+  text-align: center;
+}
+.pw-private-notice button,
+.pw-lb__retry {
+  min-height: 32px;
+  padding: 6px 11px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: rgba(255,255,255,.72);
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
 .pw-upload-btn {
   padding: 11px 26px;
   border: none;
@@ -126,6 +180,31 @@ body {
    照片墙 — 一摞摞按日期叠放的照片
    ============================================================ */
 .pw-stacks {
+  display: grid;
+  gap: 42px;
+}
+.pw-month {
+  display: grid;
+  gap: 18px;
+}
+.pw-month__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 4px 9px;
+  border-bottom: 1px solid rgba(104, 136, 162, 0.2);
+}
+.pw-month__head h2 {
+  color: #4c6680;
+  font-size: 16px;
+  font-weight: 700;
+}
+.pw-month__head span {
+  color: #8a9aad;
+  font-size: 12px;
+  font-weight: 650;
+}
+.pw-month__stacks {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
@@ -187,6 +266,19 @@ body {
   display: block;
   background: #eef2f6;
 }
+.pw-stack__layer:has(img[data-private-loaded="error"])::after,
+.pw-photo-card:has(img[data-private-loaded="error"])::after,
+.pw-event-card:has(img[data-private-loaded="error"])::after {
+  content: "Retry";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(49, 63, 82, 0.7);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
 /* 悬停：整摞弹起、角度摆开 */
 .pw-stack:hover .pw-stack__layer {
   transform: rotate(calc(var(--rot, 0deg) * 2.1))
@@ -212,6 +304,61 @@ body {
 .pw-stack__meta {
   margin-top: 18px;
   text-align: center;
+}
+.pw-event-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 18px;
+}
+.pw-event-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 42px 16px;
+  color: #8a93a4;
+  font-size: 14px;
+  text-align: center;
+}
+.pw-event-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 84px;
+  padding: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.8);
+  border-radius: 15px;
+  background: rgba(255,255,255,.7);
+  box-shadow: 0 8px 20px rgba(70,80,110,.1);
+  color: #4f687f;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform .2s var(--spring), box-shadow .2s ease;
+}
+.pw-event-card:hover { transform: translateY(-3px); box-shadow: 0 13px 24px rgba(70,80,110,.16); }
+.pw-event-card__photo {
+  width: 62px;
+  height: 62px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: #eaf0f4;
+}
+.pw-event-card__name {
+  display: block;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pw-event-card__count {
+  display: block;
+  margin-top: 5px;
+  color: #8a9aad;
+  font-size: 12px;
+  font-weight: 600;
 }
 .pw-stack__name {
   font-size: 17px;
@@ -473,6 +620,7 @@ body {
   max-width: 88vw;
   max-height: 90vh;
   overflow-y: auto;
+  touch-action: pan-y;
 }
 .pw-lb__img {
   max-width: 100%;
@@ -487,6 +635,11 @@ body {
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.3px;
+}
+.pw-lb__retry {
+  margin-top: 12px;
+  color: #ffffff;
+  background: rgba(255,255,255,.16);
 }
 /* 灯箱里的当天生活记录 */
 .pw-lb__diary {
@@ -604,6 +757,9 @@ body {
   .pw-main { padding: 104px 14px 80px; }
   .pw-title { font-size: 25px; }
   .pw-stacks { gap: 24px 30px; }
+  .pw-month__stacks { gap: 24px 30px; }
+  .pw-month__head { padding-left: 2px; padding-right: 2px; }
+  .pw-event-groups { grid-template-columns: 1fr; }
   .pw-stack-cell, .pw-stack { width: 200px; }
   .pw-stack { height: 168px; }
   .pw-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 24px 16px; }
@@ -633,5 +789,5 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .pw-cloud { animation: none; }
-  .pw-stack, .pw-stack__layer, .pw-photo, .pw-upload-btn { transition: none; }
+  .pw-stack, .pw-stack__layer, .pw-photo, .pw-upload-btn, .pw-event-card { transition: none; }
 }

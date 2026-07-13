@@ -2,12 +2,19 @@
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 ---
 
-<PrototypeLayout title="Export - Our Nest" current="export" backHref="/?skipCover=1#home">
+<PrototypeLayout title="Offline Backup - Our Nest" current="export" backHref="/?skipCover=1#home">
   <main class="export-page">
     <section class="export-panel" aria-labelledby="exportTitle">
-      <p class="export-kicker">PERSONAL ARCHIVE</p>
-      <h1 id="exportTitle">Export our whole nest</h1>
-      <p class="export-lead">两个人的文章、记录、照片、活动、地点、评论和待办会一起导出，不会只导出当前账号的数据。</p>
+      <p class="export-kicker">OFFLINE ENCRYPTED BACKUP</p>
+      <h1 id="exportTitle">把我们的回忆留在自己手里</h1>
+      <p class="export-lead">生成一份只保存在本机的 AES-256 加密归档。两个人的日记、照片和其他共同内容会一起导出，不会只导出当前账号的数据。</p>
+
+      <div class="export-scope" aria-label="Backup contents">
+        <strong>本次归档包含</strong>
+        <span>日记与生活记录</span>
+        <span>原始照片</span>
+        <span>文章、活动、地点、待办与评论</span>
+      </div>
 
       <form id="exportForm" class="export-form">
         <label>
@@ -18,7 +25,7 @@ import PrototypeLayout from "../layouts/PrototypeLayout.astro";
           <span>再次输入</span>
           <input id="exportPasswordConfirm" type="password" minlength="12" autocomplete="new-password" required placeholder="再次输入，避免打错" />
         </label>
-        <button id="exportButton" type="submit">生成加密归档</button>
+        <button id="exportButton" type="submit">下载本地加密备份</button>
       </form>
 
       <div class="export-progress" id="exportProgress" hidden>
@@ -26,7 +33,17 @@ import PrototypeLayout from "../layouts/PrototypeLayout.astro";
         <p id="exportStatus" role="status" aria-live="polite"></p>
       </div>
 
-      <p class="export-note">归档使用 AES-256 加密，可在 Windows 上用 7-Zip 输入密码解压。密码和解密后的内容只在当前浏览器内存中短暂存在，不会上传到 VPS。</p>
+      <section class="export-recovery" aria-labelledby="exportRecoveryTitle">
+        <h2 id="exportRecoveryTitle">离线恢复说明</h2>
+        <ol>
+          <li>下载完成后，把 ZIP 文件保存到自己的电脑、加密硬盘或可信云盘；建议保留两份。</li>
+          <li>把归档密码单独存入密码管理器，不要和 ZIP 放在同一个位置。</li>
+          <li>需要查看时，用新版 7-Zip 输入密码解压，即可离线打开日记文本和原始照片。</li>
+        </ol>
+        <p>归档内还有 <code>恢复说明.txt</code> 与 <code>归档清单.json</code>。它用于离线保存和阅读，不会自动回灌网站，避免旧备份误覆盖现在的共同内容。</p>
+      </section>
+
+      <p class="export-note">密码、解密后的文字和照片只在当前浏览器内存中短暂存在，不会上传到 VPS。归档使用 WinZip AES-256；Windows 请使用新版 7-Zip 解压。</p>
     </section>
   </main>
 
@@ -41,6 +58,9 @@ import PrototypeLayout from "../layouts/PrototypeLayout.astro";
   .export-kicker { margin: 0 0 8px; color: #7a9fbd; font-size: 12px; font-weight: 800; letter-spacing: .12em; }
   h1 { margin: 0; color: #304a60; font-size: 34px; line-height: 1.2; }
   .export-lead { margin: 14px 0 24px; line-height: 1.7; }
+  .export-scope { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 24px; color: #5c748b; font-size: 13px; line-height: 1.5; }
+  .export-scope strong { width: 100%; color: #405a70; font-size: 14px; }
+  .export-scope span { padding: 5px 9px; border-radius: 999px; background: rgba(122,166,212,.12); }
   .export-form { display: grid; gap: 14px; }
   .export-form label { display: grid; gap: 7px; font-size: 14px; font-weight: 700; }
   .export-form input { width: 100%; box-sizing: border-box; border: 1px solid rgba(95,122,150,.28); border-radius: 7px; padding: 12px 13px; background: #fff; color: #304a60; font: inherit; }
@@ -51,6 +71,11 @@ import PrototypeLayout from "../layouts/PrototypeLayout.astro";
   .export-progress__track { height: 8px; overflow: hidden; border-radius: 4px; background: #e8eef4; }
   .export-progress__track span { display: block; width: 0; height: 100%; background: #79a8cf; transition: width .2s ease; }
   #exportStatus { margin: 8px 0 0; font-size: 14px; }
+  .export-recovery { margin-top: 24px; padding: 18px; border-radius: 8px; background: rgba(122,166,212,.08); color: #587087; }
+  .export-recovery h2 { margin: 0; color: #405a70; font-size: 16px; }
+  .export-recovery ol { margin: 10px 0; padding-left: 21px; line-height: 1.75; font-size: 13px; }
+  .export-recovery p { margin: 0; font-size: 13px; line-height: 1.7; }
+  .export-recovery code { padding: 1px 4px; border-radius: 3px; background: rgba(255,255,255,.75); color: #405a70; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .export-note { margin: 22px 0 0; padding-top: 18px; border-top: 1px solid rgba(95,122,150,.15); color: #71869a; font-size: 13px; line-height: 1.65; }
   @media (max-width: 760px) { .export-page { padding: 100px 12px 40px; } .export-panel { padding: 24px 18px; } h1 { font-size: 28px; } }
 </style>

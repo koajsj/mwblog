@@ -34,6 +34,20 @@ function weatherLabel(code: number) {
   return "Weather changing";
 }
 
+function locationPartKey(value: string) {
+  return value.trim().toLocaleLowerCase().replace(/[\s,，、]/g, "");
+}
+
+function formatLocation(city?: string, region?: string, country?: string) {
+  const parts = [city, region, country].filter((value): value is string => Boolean(value?.trim()));
+  const uniqueParts = parts.filter((value, index) => {
+    const key = locationPartKey(value);
+    return key && parts.slice(0, index).every((previous) => locationPartKey(previous) !== key);
+  });
+
+  return uniqueParts.slice(0, 2).join(", ") || "Your area";
+}
+
 async function fetchJson(url: string) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -95,7 +109,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
       throw new Error("weather unavailable");
     }
 
-    const location = [geo.city, geo.region, geo.country].filter(Boolean).slice(0, 2).join(", ") || "Your area";
+    const location = formatLocation(geo.city, geo.region, geo.country);
     const payload = {
       location,
       weather: `${location} · ${weatherLabel(Number(current.weather_code))} ${Math.round(Number(current.temperature_2m))}°C`,

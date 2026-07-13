@@ -95,6 +95,17 @@ body {
   font-size: 14px;
   color: #7a8aa0;
 }
+.rec-latest {
+  display: inline-flex;
+  margin-top: 11px;
+  padding: 6px 11px;
+  border: 1px solid rgba(122, 166, 212, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.48);
+  color: #718299;
+  font-size: 12px;
+  font-weight: 600;
+}
 .rec-add-toggle {
   margin-top: 18px;
   padding: 10px 20px;
@@ -291,12 +302,51 @@ body {
   color: #e8895b;
   box-shadow: 0 3px 10px rgba(70, 80, 110, 0.16);
 }
+.rec-private-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -18px auto 28px;
+  padding: 10px 13px;
+  border: 1px solid rgba(197, 137, 97, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 250, 244, 0.8);
+  color: #8a6247;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.55;
+  text-align: center;
+}
+.rec-private-notice button,
+.rec-lb__retry {
+  min-height: 32px;
+  padding: 6px 11px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: rgba(255,255,255,.72);
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
 
 /* ---- 时间线 ---- */
 .rec-timeline {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 38px;
+}
+.rec-timeline::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 13px;
+  width: 2px;
+  background: linear-gradient(#9fc7e0, rgba(159, 199, 224, 0.18));
 }
 .rec-empty {
   text-align: center;
@@ -307,11 +357,25 @@ body {
 
 /* ---- 单日 ---- */
 .rec-day__label {
+  position: relative;
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 4px;
-  padding-left: 6px;
+  padding-left: 32px;
+}
+.rec-day__label::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 6px;
+  width: 12px;
+  height: 12px;
+  border: 3px solid #f7fbff;
+  border-radius: 50%;
+  background: #7aa6d4;
+  box-shadow: 0 0 0 2px rgba(122, 166, 212, 0.22);
 }
 .rec-day__date {
   font-size: 17px;
@@ -321,6 +385,13 @@ body {
 .rec-day__count {
   font-size: 12px;
   color: #93a0b2;
+}
+.rec-day__together {
+  margin-left: auto;
+  color: #8494a7;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
 }
 .rec-day__notes {
   display: flex;
@@ -393,6 +464,18 @@ body {
   color: #97a3b8;
   font-variant-numeric: tabular-nums;
 }
+.note__meta {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.note__updated {
+  color: #9faaba;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
 
 /* 内容：折叠时限高，展开时弹簧打开 */
 .note__body {
@@ -463,6 +546,7 @@ body {
   margin-bottom: 11px;
 }
 .note__photo {
+  position: relative;
   width: 54px;
   height: 54px;
   padding: 0;
@@ -480,6 +564,17 @@ body {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+.note__photo:has(img[data-private-loaded="error"])::after {
+  content: "Retry";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(49, 63, 82, 0.72);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 /* 弹簧展开：卡片做一次挤压-回弹（从顶部展开） */
@@ -513,6 +608,23 @@ body {
   background: #ffffff;
   box-shadow: 0 20px 54px rgba(0, 0, 0, 0.55);
 }
+.rec-lb__status {
+  position: absolute;
+  bottom: 24px;
+  max-width: min(80vw, 480px);
+  color: #eef2f8;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.55;
+  text-align: center;
+}
+.rec-lb__retry {
+  position: absolute;
+  bottom: 18px;
+  color: #ffffff;
+  background: rgba(255,255,255,.16);
+}
+.rec-lb__status:not(:empty) + .rec-lb__retry:not(.is-hidden) { bottom: 62px; }
 .rec-lb__close {
   position: absolute;
   top: 20px; right: 24px;
@@ -562,8 +674,12 @@ body {
   .note { width: 100%; }
   .note + .note { margin-left: 0; margin-top: 10px; }
   .rec-title { font-size: 25px; }
+  .rec-day__together { width: 100%; margin-left: 0; }
   .rec-lb { padding: 66px 14px 76px; }
   .rec-lb__img { max-height: 68dvh; }
+  .rec-lb__status { bottom: 72px; }
+  .rec-lb__retry,
+  .rec-lb__status:not(:empty) + .rec-lb__retry:not(.is-hidden) { bottom: 112px; }
   .rec-lb__close { top: 14px; right: 14px; width: 44px; height: 44px; }
   .rec-lb__nav { top: auto; bottom: 16px; width: 44px; height: 44px; transform: none; }
   .rec-lb__nav--prev { left: 16px; }

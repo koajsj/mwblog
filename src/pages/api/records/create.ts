@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
 import { isIsoCalendarDate } from "../../../lib/datetime";
 import { isAllowedImageType, isOwnedStoragePath } from "../../../lib/files";
-import { readEncryptedText } from "../../../lib/private-payload";
+import { readEncryptedText, readNullableEncryptedText } from "../../../lib/private-payload";
 import { removeStoragePaths, storageObjectExists } from "../../../lib/storage";
 import { createLocalsClient } from "../../../lib/local-store";
 
@@ -24,9 +24,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const mood = String(payload?.mood || "happy").trim();
   let body = "";
   let photoCaption = "";
+  let photoTitle: string | null = null;
   try {
     body = readEncryptedText(payload?.body, { maxLength: 8192, context: "record.body" });
     photoCaption = readEncryptedText(payload?.photo_caption, { maxLength: 4096, context: "photo.caption" });
+    photoTitle = readNullableEncryptedText(payload?.photo_title, { maxLength: 4096, context: "photo.title" });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Invalid encrypted record content." }, 400);
   }
@@ -87,7 +89,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   for (const item of validPhotos) {
     const { error: photoError } = await store.from("photos").insert({
       owner_id: user.id,
-      title: null,
+      title: photoTitle,
       caption: photoCaption,
       taken_on: recordOn,
       storage_path: item.path,

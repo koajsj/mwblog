@@ -39,6 +39,20 @@ function csv(rows) {
   return "\ufeff" + rows.map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }
 
+function archiveManifest(data, counts) {
+  return JSON.stringify({
+    format: "our-nest-readable-backup",
+    version: data.version,
+    exported_at: data.exported_at,
+    contents: counts,
+    recovery: {
+      purpose: "Offline reading and personal preservation.",
+      import_supported: false,
+      instructions: "Read 恢复说明.txt after extracting this password-protected archive.",
+    },
+  }, null, 2) + "\n";
+}
+
 function checkedPlaintext(value) {
   const text = String(value || "");
   if (text.startsWith("[Encrypted content")) throw new Error("Some private content could not be decrypted. Unlock the private space again and retry.");
@@ -82,6 +96,24 @@ async function buildFiles(data, privateSpace) {
     "文件数量统计：",
     ...Object.entries(counts).map(([name, count]) => `${name}: ${count}`),
   ].join("\r\n")));
+  files.push(textFile("恢复说明.txt", [
+    "Our Nest 本地加密备份恢复说明",
+    "",
+    "这是一份可离线阅读的个人归档。它包含导出时的日记、生活记录、照片及其他共同内容。",
+    "",
+    "如何离线恢复内容：",
+    "1. 请使用新版 7-Zip 或其他支持 WinZip AES-256 的解压工具，输入归档密码解压。",
+    "2. 在“生活记录”目录查看日记文本；在“照片”目录查看原始照片；其他内容按目录分类保存。",
+    "3. 建议将 ZIP 文件保留在两个独立、安全的位置，并将密码单独保存在密码管理器中。",
+    "",
+    "重要边界：",
+    "- 此归档用于离线保存和阅读，不提供自动导入网站的功能。",
+    "- 自动导入旧归档可能覆盖双方后来新增的内容，因此恢复网站服务请使用 VPS 的灾难恢复备份。",
+    "- 如果网站暂时不可用，解压此归档后仍可在本机查看其中的日记与照片。",
+    "",
+    "归档生成时间：" + data.exported_at,
+  ].join("\r\n")));
+  files.push(textFile("归档清单.json", archiveManifest(data, counts)));
 
   const sortedPosts = [...data.posts].sort((a, b) => String(a.published_at || a.created_at).localeCompare(String(b.published_at || b.created_at)));
   for (let index = 0; index < sortedPosts.length; index += 1) {
@@ -243,7 +275,7 @@ form.addEventListener("submit", async (event) => {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
-    setStatus("导出完成。请把压缩包和密码分开保存。", 100);
+    setStatus(`导出完成：${data.records.length} 篇日记、${data.photos.length} 张照片已保存。请把压缩包和密码分开保存。`, 100);
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "导出失败，请重试。", 0);
   } finally {
