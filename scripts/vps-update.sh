@@ -38,6 +38,25 @@ rollback() {
 }
 trap rollback ERR
 
+wait_for_app() {
+  local health_url="http://127.0.0.1:${PORT}/auth/login"
+
+  for _ in $(seq 1 30); do
+    if curl -fsS --max-time 3 "$health_url" >/dev/null 2>&1; then
+      return 0
+    fi
+    if ! systemctl is-active --quiet "$APP_NAME"; then
+      break
+    fi
+    sleep 2
+  done
+
+  echo "The application did not become ready at ${health_url}." >&2
+  systemctl status "$APP_NAME" --no-pager -l >&2 || true
+  journalctl -u "$APP_NAME" -n 80 --no-pager -o cat >&2 || true
+  return 1
+}
+
 /usr/local/bin/mwblog-backup
 git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$release"
 chown -R "$APP_USER":"$APP_USER" "$release"
@@ -49,16 +68,12 @@ test -f "$release/dist/server/entry.mjs"
 ln -sfn "$release" "${CURRENT_LINK}.new"
 mv -Tf "${CURRENT_LINK}.new" "$CURRENT_LINK"
 systemctl restart "$APP_NAME"
-systemctl is-active --quiet "$APP_NAME"
-for _ in $(seq 1 30); do
-  curl -fsS --max-time 3 "http://127.0.0.1:${PORT}/auth/login" >/dev/null && break
-  sleep 2
-done
-curl -fsS --max-time 3 "http://127.0.0.1:${PORT}/auth/login" >/dev/null
+wait_for_app
 
 install -o root -g root -m 0755 "${CURRENT_LINK}/scripts/vps-update.sh" /usr/local/bin/mwblog-update
 install -o root -g root -m 0755 "${CURRENT_LINK}/scripts/vps-backup.sh" /usr/local/bin/mwblog-backup
 install -o root -g root -m 0755 "${CURRENT_LINK}/scripts/vps-restore.sh" /usr/local/bin/mwblog-restore
 find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | tail -n +6 | cut -d' ' -f2- | xargs -r rm -rf
 trap - ERR
-echo "Update complete: $(git -C "$release" rev-parse --short HEAD)"
+release_commit="$(runuser -u "$APP_USER" -- env HOME="$DATA_DIR" git -C "$release" rev-parse --short HEAD)"
+echo "Update complete: ${release_commit}"
