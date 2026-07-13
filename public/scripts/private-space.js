@@ -937,6 +937,9 @@
         if (!url) return Promise.resolve();
         node.setAttribute("data-private-loaded", "loading");
         return fetchPhotoBlobUrl(url).then(function (blobUrl) {
+          // A reused image node (the photo lightbox) may have moved on while
+          // this encrypted file was being fetched. Never paint stale content.
+          if (node.getAttribute("data-private-photo") !== url) return;
           if (node.tagName === "IMG") {
             node.src = blobUrl;
             return waitForImage(node);
@@ -948,9 +951,13 @@
             });
           }
         }).then(function () {
-          node.setAttribute("data-private-loaded", "true");
+          if (node.getAttribute("data-private-photo") === url) {
+            node.setAttribute("data-private-loaded", "true");
+          }
         }).catch(function () {
-          node.setAttribute("data-private-loaded", "error");
+          if (node.getAttribute("data-private-photo") === url) {
+            node.setAttribute("data-private-loaded", "error");
+          }
         });
       }));
     });

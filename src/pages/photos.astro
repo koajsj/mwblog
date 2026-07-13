@@ -399,6 +399,7 @@ const deleted = Astro.url.searchParams.get("deleted");
         var lbDeleteId = document.getElementById("pwLbDeleteId");
         var lbList = [], lbIndex = 0;
         var lbReturnFocus = null;
+        var lbRenderToken = 0;
 
         var SLICE_EASE = "cubic-bezier(0.66, 0.02, 0.34, 1)";
         var SHADE_MAX = "0.6";
@@ -411,7 +412,7 @@ const deleted = Astro.url.searchParams.get("deleted");
           return (s || "").replace(/[<>&]/g, function (c) { return ({"<":"&lt;",">":"&gt;","&":"&amp;"})[c]; });
         }
 
-        function renderLbMeta(item) {
+        function renderLbMeta(item, token) {
           if (lbDeleteForm && lbDeleteId) {
             lbDeleteForm.classList.toggle("is-hidden", !item.canDelete);
             lbDeleteId.value = item.canDelete ? item.id : "";
@@ -421,6 +422,7 @@ const deleted = Astro.url.searchParams.get("deleted");
             privateSpace && privateSpace.decryptText ? privateSpace.decryptText(item.caption || "", "photo.caption") : Promise.resolve(item.caption || ""),
             item.diary && privateSpace && privateSpace.decryptText ? privateSpace.decryptText(item.diary.body || "", "record.body") : Promise.resolve(item.diary && item.diary.body || ""),
           ]).then(function (values) {
+            if (token !== lbRenderToken) return;
             lbCap.textContent = values[0] || values[1] || "";
             if (item.diary) {
               lbDiary.classList.remove("is-hidden");
@@ -435,12 +437,27 @@ const deleted = Astro.url.searchParams.get("deleted");
         function showLb() {
           var item = lbList[lbIndex];
           if (!item) return;
+          var token = ++lbRenderToken;
+          lbImg.removeAttribute("src");
+          lbImg.style.visibility = "";
+          lbCap.textContent = "Loading private photo…";
+          lbDiary.classList.add("is-hidden");
+          lbDiary.textContent = "";
           if (privateSpace && privateSpace.hydratePhotoNodes) {
             lbImg.setAttribute("data-private-photo", item.url);
             privateSpace.hydratePhotoNodes(lbEl).then(function () {
+              if (token !== lbRenderToken) return;
+              if (lbImg.getAttribute("data-private-loaded") === "error") {
+                lbCap.textContent = "Could not open this private photo. Please try again.";
+                return;
+              }
               lbImg.style.visibility = "";
-              renderLbMeta(item);
-            }).catch(function () {});
+              renderLbMeta(item, token);
+            }).catch(function () {
+              if (token === lbRenderToken) {
+                lbCap.textContent = "Could not open this private photo. Please try again.";
+              }
+            });
           }
         }
 
@@ -624,7 +641,7 @@ const deleted = Astro.url.searchParams.get("deleted");
             lbImg.src = toUrl;
             lbImg.style.visibility = "";
             var p = lbList[lbIndex];
-            if (p) renderLbMeta(p);
+            if (p) renderLbMeta(p, ++lbRenderToken);
             sliceBusy = false;
           }
 
