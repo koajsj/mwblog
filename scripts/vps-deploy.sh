@@ -7,6 +7,8 @@ RELEASES_DIR="${APP_ROOT}/releases"
 CURRENT_LINK="${APP_ROOT}/current"
 DATA_DIR="${DATA_DIR:-/var/lib/${APP_NAME}}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/${APP_NAME}}"
+NPM_CACHE_DIR="${NPM_CACHE_DIR:-${DATA_DIR}/.npm-cache}"
+ACME_WEBROOT="${ACME_WEBROOT:-/var/www/${APP_NAME}-acme}"
 ENV_FILE="${ENV_FILE:-/etc/${APP_NAME}.env}"
 REPO_URL="${REPO_URL:-https://github.com/koajsj/mwblog.git}"
 BRANCH="${BRANCH:-main}"
@@ -20,6 +22,7 @@ PREVIOUS_RELEASE="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
 
 [ "$(id -u)" -eq 0 ] || { echo "Please run this deployment command with sudo." >&2; exit 1; }
 [[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || { echo "Invalid domain: $DOMAIN" >&2; exit 1; }
+[[ "$PORT" =~ ^[1-9][0-9]{0,4}$ ]] && [ "$PORT" -le 65535 ] || { echo "Invalid port: $PORT" >&2; exit 1; }
 
 log() { printf '\n==> %s\n' "$*"; }
 generate_key() { node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"; }
@@ -44,7 +47,7 @@ trap rollback_deploy ERR
 install_packages() {
   log "Installing Debian packages"
   apt-get update
-  apt-get install -y ca-certificates curl gnupg git nginx certbot python3-certbot-nginx
+  apt-get install -y ca-certificates curl gnupg git nginx certbot
   if ! command -v node >/dev/null 2>&1 || ! node -v | grep -Eq "^v${NODE_MAJOR}\."; then
     curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
     apt-get install -y nodejs
@@ -58,7 +61,7 @@ prepare_directories() {
     useradd --system --user-group --no-create-home --shell /usr/sbin/nologin "$APP_USER"
   fi
   install -d -o root -g root -m 0755 "$APP_ROOT" "$RELEASES_DIR"
-  install -d -o "$APP_USER" -g "$APP_USER" -m 0700 "$DATA_DIR" "$DATA_DIR/storage" "$BACKUP_DIR"
+  install -d -o "$APP_USER" -g "$APP_USER" -m 0700 "$DATA_DIR" "$DATA_DIR/storage" "$BACKUP_DIR" "$NPM_CACHE_DIR"
   if [ ! -f "$ENV_FILE" ]; then
     umask 077
     printf 'APP_ORIGIN=https://%s\nAPP_DATA_DIR=%s\nBACKUP_ENCRYPTION_KEY=%s\n' \
@@ -84,7 +87,7 @@ build_release() {
   log "Building release ${stamp}"
   git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$NEW_RELEASE"
   chown -R "$APP_USER":"$APP_USER" "$NEW_RELEASE"
-  runuser -u "$APP_USER" -- bash -c \
+  runuser -u "$APP_USER" -- env HOME="$DATA_DIR" NPM_CONFIG_CACHE="$NPM_CACHE_DIR" bash -c \
     "set -a && source '$ENV_FILE' && set +a && cd '$NEW_RELEASE' && bash -n scripts/*.sh && npm ci && npm test && APP_DATA_DIR='$NEW_RELEASE/.build-data' npm run build && rm -rf '$NEW_RELEASE/.build-data'"
   test -f "$NEW_RELEASE/dist/server/entry.mjs" || { echo "Build output is missing." >&2; exit 1; }
   ln -sfn "$NEW_RELEASE" "${CURRENT_LINK}.new"
@@ -136,12 +139,58 @@ EOF
 }
 
 install_nginx() {
+  install -d -o root -g root -m 0755 "$ACME_WEBROOT"
   cat > "/etc/nginx/sites-available/${APP_NAME}" <<EOF
 server {
   listen 80;
+  listen [::]:80;
   server_name ${DOMAIN};
+
+  location ^~ /.well-known/acme-challenge/ {
+    root ${ACME_WEBROOT};
+    default_type text/plain;
+    try_files \$uri =404;
+  }
+
+  location / { return 404; }
+}
+EOF
+  ln -sfn "/etc/nginx/sites-available/${APP_NAME}" "/etc/nginx/sites-enabled/${APP_NAME}"
+  rm -f /etc/nginx/sites-enabled/default
+  nginx -t
+  systemctl enable --now nginx
+  if ! certbot certonly --webroot --webroot-path "$ACME_WEBROOT" --cert-name "$DOMAIN" --keep-until-expiring -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email; then
+    rm -f "/etc/nginx/sites-enabled/${APP_NAME}"
+    nginx -t && systemctl reload nginx
+    echo "HTTPS certificate setup failed. The HTTP site was disabled." >&2
+    exit 1
+  fi
+
+  cat > "/etc/nginx/sites-available/${APP_NAME}" <<EOF
+server {
+  listen 80;
+  listen [::]:80;
+  server_name ${DOMAIN};
+
+  location ^~ /.well-known/acme-challenge/ {
+    root ${ACME_WEBROOT};
+    default_type text/plain;
+    try_files \$uri =404;
+  }
+
+  location / { return 301 https://\$host\$request_uri; }
+}
+
+server {
+  listen 443 ssl;
+  listen [::]:443 ssl;
+  server_name ${DOMAIN};
+  ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
   client_max_body_size 55m;
   add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header Referrer-Policy "no-referrer" always;
 
   set_real_ip_from 173.245.48.0/20;
   set_real_ip_from 103.21.244.0/22;
@@ -182,18 +231,9 @@ server {
   }
 }
 EOF
-  ln -sfn "/etc/nginx/sites-available/${APP_NAME}" "/etc/nginx/sites-enabled/${APP_NAME}"
-  rm -f /etc/nginx/sites-enabled/default
   nginx -t
   systemctl reload nginx
-  if ! certbot --nginx --redirect -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email; then
-    rm -f "/etc/nginx/sites-enabled/${APP_NAME}"
-    nginx -t && systemctl reload nginx
-    echo "HTTPS certificate setup failed. The HTTP site was disabled." >&2
-    exit 1
-  fi
-  nginx -t
-  systemctl reload nginx
+  systemctl enable --now certbot.timer
   curl -fsS --max-time 10 "https://${DOMAIN}/auth/login" >/dev/null \
     || { echo "HTTPS health check failed; deployment is not complete." >&2; exit 1; }
 }
