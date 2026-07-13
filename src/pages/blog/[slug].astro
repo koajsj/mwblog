@@ -1,6 +1,6 @@
 ---
 import PrototypeLayout from "../../layouts/PrototypeLayout.astro";
-import { createLocalsClient } from "../../lib/supabase";
+import { createLocalsClient } from "../../lib/local-store";
 import { authorDisplayName } from "../../lib/author-display";
 import { formatCommentTime } from "../../lib/comments-display";
 import { shanghaiParts } from "../../lib/datetime";
@@ -15,8 +15,8 @@ function safeDecode(value: string) {
 }
 
 const slug = safeDecode(Astro.params.slug || "");
-const supabase = createLocalsClient(Astro.locals);
-const { data } = await supabase
+const store = createLocalsClient(Astro.locals);
+const { data } = await store
   .from("blog_posts")
   .select("id,slug,title,excerpt,content_markdown,tags,published_at,created_at,author_id,profiles(display_name,author_key)")
   .eq("slug", slug)
@@ -37,7 +37,7 @@ const formatDate = (value: string) => {
 };
 const user = Astro.locals.user;
 
-const { data: commentRows } = await supabase
+const { data: commentRows } = await store
   .from("comments")
   .select("id,target_type,target_id,author_id,body,created_at,profiles(display_name,author_key)")
   .eq("target_type", "blog")

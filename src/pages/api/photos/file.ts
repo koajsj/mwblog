@@ -1,6 +1,8 @@
 import type { APIRoute } from "astro";
+import { Readable } from "node:stream";
 import { isUuid } from "../../../lib/security";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
+import { storageFileStream } from "../../../lib/local-store";
 
 export const GET: APIRoute = async ({ url, locals }) => {
   if (!locals.user) {
@@ -12,8 +14,8 @@ export const GET: APIRoute = async ({ url, locals }) => {
     return new Response("Missing photo id.", { status: 400 });
   }
 
-  const supabase = createLocalsClient(locals);
-  const { data: photo, error: readError } = await supabase
+  const store = createLocalsClient(locals);
+  const { data: photo, error: readError } = await store
     .from("photos")
     .select("id,storage_path,mime_type")
     .eq("id", id)
@@ -26,12 +28,12 @@ export const GET: APIRoute = async ({ url, locals }) => {
     return new Response("Photo not found.", { status: 404 });
   }
 
-  const { data: file, error: downloadError } = await supabase.storage.from("photos").download(photo.storage_path);
-  if (downloadError || !file) {
+  const file = storageFileStream("photos", photo.storage_path);
+  if (!file) {
     return new Response("Photo file not found.", { status: 404 });
   }
 
-  return new Response(await file.arrayBuffer(), {
+  return new Response(Readable.toWeb(file) as ReadableStream, {
     headers: {
       "content-type": "application/octet-stream",
       "cache-control": "no-store",

@@ -1,6 +1,6 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
-import { createLocalsClient } from "../lib/supabase";
+import { createLocalsClient } from "../lib/local-store";
 import { shanghaiDateKey } from "../lib/datetime";
 import { AUTHOR_LABELS, MOOD_LABELS, asRows } from "../lib/types";
 import type { AuthorKey, BlogPost, LifeRecord, Photo, Place, PlaceTone, Profile } from "../lib/types";
@@ -10,7 +10,7 @@ const profile = Astro.locals.profile;
 const authorKey = (profile?.author_key || "white") as AuthorKey;
 const homeWelcomeName = profile?.display_name || AUTHOR_LABELS[authorKey];
 
-const supabase = createLocalsClient(Astro.locals);
+const store = createLocalsClient(Astro.locals);
 
 const [
   { data: posts },
@@ -22,45 +22,45 @@ const [
   { data: firstPhotoRows },
   { data: profileRows },
 ] = await Promise.all([
-  supabase
+  store
     .from("blog_posts")
     .select("id,slug,title,excerpt,tags,published_at,created_at,profiles(display_name,author_key)")
     .order("published_at", { ascending: false })
     .limit(3),
-  supabase
+  store
     .from("photos")
     .select("id,title,caption,taken_on,storage_path,created_at,profiles(display_name,author_key)")
     .order("created_at", { ascending: false })
     .limit(5),
-  supabase
+  store
     .from("places")
     .select("id,name,note,tone,created_at")
     .order("created_at", { ascending: false })
     .limit(3),
-  supabase
+  store
     .from("life_records")
     .select("id,record_on,mood,body,created_at,profiles(display_name,author_key)")
     .order("record_on", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(4),
-  supabase
+  store
     .from("life_records")
     .select("record_on")
     .order("record_on", { ascending: true })
     .limit(1),
-  supabase
+  store
     .from("blog_posts")
     .select("created_at,published_at")
     .order("created_at", { ascending: true })
     .limit(1),
-  supabase
+  store
     .from("photos")
     .select("created_at,taken_on")
     .order("created_at", { ascending: true })
     .limit(1),
-  supabase
+  store
     .from("profiles")
-    .select("id,email,author_key,display_name,weather_text,weather_updated_at,mood_text,mood_date,doing_text,doing_date,created_at")
+    .select("id,account,author_key,display_name,weather_text,weather_updated_at,mood_text,mood_date,doing_text,doing_date,created_at")
     .in("author_key", ["white", "brown"]),
 ]);
 const dbPlaces = (placeRows || []) as Place[];

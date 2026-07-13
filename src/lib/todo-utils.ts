@@ -102,7 +102,7 @@ export function isMissingTodoActivityLinkTable(error: { code?: string; message?:
 }
 
 export async function deleteLinkedTodoActivities(
-  supabase: any,
+  store: any,
   userId: string,
   todoIds: string[],
   legacyActivityIds: string[] = [],
@@ -111,7 +111,7 @@ export async function deleteLinkedTodoActivities(
   const activityIds = new Set(legacyActivityIds.filter(Boolean));
 
   if (ids.length) {
-    const { data, error } = await supabase
+    const { data, error } = await store
       .from("todo_activity_entries")
       .select("activity_entry_id")
       .in("todo_id", ids);
@@ -122,7 +122,7 @@ export async function deleteLinkedTodoActivities(
         if (row.activity_entry_id) activityIds.add(row.activity_entry_id);
       });
 
-      const { error: linkError } = await supabase
+      const { error: linkError } = await store
         .from("todo_activity_entries")
         .delete()
         .in("todo_id", ids);
@@ -132,7 +132,7 @@ export async function deleteLinkedTodoActivities(
 
   const deleteIds = Array.from(activityIds);
   if (deleteIds.length) {
-    const { error } = await supabase
+    const { error } = await store
       .from("activity_entries")
       .delete()
       .in("id", deleteIds)

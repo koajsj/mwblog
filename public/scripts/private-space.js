@@ -11,6 +11,7 @@
   var LEGACY_FILE_PREFIX = "MWBLOG_FILE_V1 ";
   var LEGACY_RAW_KEY_SESSION = "ournest.private.raw.v1";
   var LEGACY_BUNDLE_SESSION = "ournest.private.bundle.v1";
+  var RAW_KEY_SESSION = "ournest.private.raw.wc2";
   var CLEAR_SIGNAL_KEY = "ournest.private.clear.v1";
   var READY_EVENT = "ournest-private-ready";
   var FAILED_EVENT = "ournest-private-failed";
@@ -62,9 +63,49 @@
 
   function clearStoredRawKey() {
     try {
+      sessionStorage.removeItem(RAW_KEY_SESSION);
       sessionStorage.removeItem(LEGACY_RAW_KEY_SESSION);
       sessionStorage.removeItem(LEGACY_BUNDLE_SESSION);
     } catch (error) {}
+  }
+
+  function clearLegacyStoredKeys() {
+    try {
+      sessionStorage.removeItem(LEGACY_RAW_KEY_SESSION);
+      sessionStorage.removeItem(LEGACY_BUNDLE_SESSION);
+    } catch (error) {}
+  }
+
+  function storeRawKey(rawKey, bundle) {
+    try {
+      sessionStorage.setItem(RAW_KEY_SESSION, JSON.stringify({
+        fingerprint: String(bundle && bundle.fingerprint || ""),
+        key: b64urlEncode(rawKey),
+      }));
+    } catch (error) {}
+  }
+
+  function loadStoredKey(bundle) {
+    try {
+      var stored = JSON.parse(sessionStorage.getItem(RAW_KEY_SESSION) || "null");
+      if (!stored || stored.fingerprint !== String(bundle && bundle.fingerprint || "")) return Promise.resolve(null);
+      var rawKey = b64urlDecode(stored.key);
+      if (rawKey.length !== 32) throw new Error("invalid key");
+      return fingerprint(rawKey).then(function (fp) {
+        if (fp !== stored.fingerprint) throw new Error("invalid fingerprint");
+        return importSpaceKey(rawKey).then(function (key) {
+          rawKey.fill(0);
+          return key;
+        });
+      }).catch(function () {
+        rawKey.fill(0);
+        clearStoredRawKey();
+        return null;
+      });
+    } catch (error) {
+      clearStoredRawKey();
+      return Promise.resolve(null);
+    }
   }
 
   function trim(value) {
@@ -257,7 +298,10 @@
     var recoveryInput = document.getElementById("privateSpaceRecovery");
 
     gate.classList.remove("is-hidden");
+    primary.disabled = false;
+    secondary.disabled = false;
     error.textContent = "";
+    modeBtn.classList.remove("is-hidden");
     passInput.value = "";
     confirmInput.value = "";
     recoveryInput.value = "";
@@ -271,7 +315,7 @@
       recoveryField.classList.add("is-hidden");
       passField.classList.remove("is-hidden");
       help.textContent = "Choose a strong passphrase. It will be needed on every new device.";
-      modeBtn.textContent = "Already have a recovery code?";
+      modeBtn.classList.add("is-hidden");
       primary.textContent = "Create key";
       secondary.textContent = "Log out";
     } else if (mode === "recovery") {
@@ -414,10 +458,6 @@
         logoutNow();
       };
 
-      view.modeBtn.onclick = function () {
-        showRecovery().then(resolve).catch(reject);
-      };
-
       view.primary.onclick = function () {
         var passphrase = trim(view.passInput.value);
         var confirm = trim(view.confirmInput.value);
@@ -427,6 +467,10 @@
         }
         if (passphrase !== confirm) {
           view.error.textContent = "The two passphrase entries do not match.";
+          return;
+        }
+        if (!window.crypto || !window.crypto.subtle) {
+          view.error.textContent = "This browser needs HTTPS and Web Crypto support to create the private-space key.";
           return;
         }
         view.error.textContent = "";
@@ -445,6 +489,7 @@
           bundle.recovery = result[1];
           bundle.fingerprint = result[2];
           return saveBundle(bundle).then(function (savedBundle) {
+            storeRawKey(rawKey, savedBundle);
             markReady(savedBundle);
             var createdView = showGate("created", { recoveryCode: recoveryCode });
             createdView.secondary.onclick = function () {
@@ -490,6 +535,7 @@
               throw new Error("The recovery code did not unlock this space.");
             }
             view.recoveryInput.value = "";
+            storeRawKey(rawKey, bundle);
             markReady(bundle);
             return importSpaceKey(rawKey).then(function (key) {
               rawKey.fill(0);
@@ -529,6 +575,7 @@
               throw new Error("wrong key");
             }
             view.passInput.value = "";
+            storeRawKey(rawKey, bundle);
             markReady(bundle);
             return importSpaceKey(rawKey).then(function (key) {
               rawKey.fill(0);
@@ -549,7 +596,9 @@
     if (!keyPromise) {
       keyPromise = fetchBundle().then(function (bundle) {
         if (!bundle) return setupKey();
-        return showUnlock();
+        return loadStoredKey(bundle).then(function (key) {
+          return key || showUnlock();
+        });
       }).catch(function (error) {
         keyPromise = null;
         markFailure(error);
@@ -814,8 +863,7 @@
     if (event.key === CLEAR_SIGNAL_KEY && event.newValue) clearAfterSessionLoss(false);
   });
 
-  // Remove raw keys left by releases that persisted them in sessionStorage.
-  clearStoredRawKey();
+  clearLegacyStoredKeys();
   ensureReady().then(function () {
     markReady(bundleCache);
   }).catch(function () {});

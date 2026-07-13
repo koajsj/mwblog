@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream, existsSync, mkdirSync, openSync, r
 import { dirname, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 
-const MAGIC = "MWBLOG_BACKUP_V1";
+const MAGIC = "MWBLOG_BACKUP_V2";
 const TAG_BYTES = 16;
 
 function loadDotEnv() {

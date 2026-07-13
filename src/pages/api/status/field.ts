@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
 import { shanghaiDateKey } from "../../../lib/datetime";
 import { readNullableEncryptedText } from "../../../lib/private-payload";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const user = locals.user;
@@ -29,14 +29,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return new Response(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "invalid encrypted text" }), { status: 400 });
   }
 
-  const supabase = createLocalsClient(locals);
+  const store = createLocalsClient(locals);
   // 空字符串 = 清空（回到默认占位）
   const payload =
     field === "mood"
       ? { mood_text: value, mood_date: value ? shanghaiDateKey() : null }
       : { doing_text: value, doing_date: value ? shanghaiDateKey() : null };
 
-  const { error } = await supabase.from("profiles").update(payload).eq("id", user.id);
+  const { error } = await store.from("profiles").update(payload).eq("id", user.id);
   if (error) {
     return new Response(JSON.stringify({ ok: false, error: "Could not update the status." }), { status: 500 });
   }

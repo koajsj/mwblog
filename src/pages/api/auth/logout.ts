@@ -1,12 +1,7 @@
 import type { APIRoute } from "astro";
-import { clearSessionCookies, getAccessToken } from "../../../lib/auth";
-import { createUserClient } from "../../../lib/supabase";
+import { endSession } from "../../../lib/auth";
 
 export const POST: APIRoute = async ({ cookies, redirect }) => {
-  const token = getAccessToken(cookies);
-  if (token) {
-    await createUserClient(token).auth.signOut().catch(() => undefined);
-  }
-  clearSessionCookies(cookies);
+  endSession(cookies);
   return redirect("/", 303);
 };

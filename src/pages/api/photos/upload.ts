@@ -4,7 +4,7 @@ import { extensionFromName, MAX_PHOTO_BYTES, isAllowedImageType } from "../../..
 import { parseEncryptedFileHeader, readNullableEncryptedText } from "../../../lib/private-payload";
 import { ensureStorageBuckets } from "../../../lib/storage";
 import { safeLocalRedirect } from "../../../lib/redirect";
-import { createLocalsClient, createServiceClient } from "../../../lib/supabase";
+import { createLocalsClient, createServiceClient } from "../../../lib/local-store";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const user = locals.user;
@@ -37,10 +37,10 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Photos must be 50 MB or smaller.")}`, 303);
   }
 
-  const sourceBytes = new Uint8Array(await file.arrayBuffer());
+  const headerBytes = new Uint8Array(await file.slice(0, 2048).arrayBuffer());
   let detectedType = "";
   try {
-    const encryptedFile = parseEncryptedFileHeader(sourceBytes);
+    const encryptedFile = parseEncryptedFileHeader(headerBytes);
     if (!encryptedFile.current) throw new Error("Photo must use the current client-encryption format.");
     detectedType = encryptedFile.mimeType;
   } catch (error) {
@@ -50,7 +50,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Only encrypted JPEG, PNG, WebP, or GIF uploads are allowed.")}`, 303);
   }
 
-  const supabase = createLocalsClient(locals);
+  const store = createLocalsClient(locals);
   const storage = createServiceClient().storage.from("photos");
   const path = `${user.id}/${Date.now()}-${crypto.randomUUID()}.${extensionFromName(file.name, detectedType)}`;
 
@@ -60,7 +60,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Photo storage is temporarily unavailable.")}`, 303);
   }
 
-  const { error: uploadError } = await storage.upload(path, sourceBytes, {
+  const { error: uploadError } = await storage.upload(path, file, {
     contentType: "application/octet-stream",
     upsert: false,
   });
@@ -69,7 +69,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not upload the encrypted photo.")}`, 303);
   }
 
-  const { error: insertError } = await supabase.from("photos").insert({
+  const { error: insertError } = await store.from("photos").insert({
     owner_id: user.id,
     title,
     caption,

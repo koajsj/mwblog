@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
 import { readEncryptedText } from "../../../lib/private-payload";
 import { isUuid } from "../../../lib/security";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 import {
   TODO_ACTIVITY_CATEGORY,
   deleteLinkedTodoActivities,
@@ -39,8 +39,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return json({ error: "Completion time must total between 1 minute and 24 hours." }, 400);
   }
 
-  const supabase = createLocalsClient(locals);
-  const { data: todo, error: readError } = await supabase
+  const store = createLocalsClient(locals);
+  const { data: todo, error: readError } = await store
     .from("todos")
     .select("id,completed,activity_entry_id")
     .eq("id", id)
@@ -52,7 +52,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (todo.completed) return json({ error: "Task is already completed." }, 409);
 
   const cleanupError = await deleteLinkedTodoActivities(
-    supabase,
+    store,
     user.id,
     [id],
     todo.activity_entry_id ? [todo.activity_entry_id as string] : [],
@@ -70,7 +70,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     end_time: range.end_time,
   }));
 
-  const { data: activities, error: activityError } = await supabase
+  const { data: activities, error: activityError } = await store
     .from("activity_entries")
     .insert(activityPayloads)
     .select("id");
@@ -80,19 +80,19 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const activityEntryId = activityEntryIds[0] || null;
 
   if (activityEntryIds.length) {
-    const { error: linkError } = await supabase.from("todo_activity_entries").insert(
+    const { error: linkError } = await store.from("todo_activity_entries").insert(
       activityEntryIds.map((activityId: string) => ({
         todo_id: id,
         activity_entry_id: activityId,
       })),
     );
     if (linkError && !isMissingTodoActivityLinkTable(linkError)) {
-      await supabase.from("activity_entries").delete().in("id", activityEntryIds).eq("owner_id", user.id);
+      await store.from("activity_entries").delete().in("id", activityEntryIds).eq("owner_id", user.id);
       return json({ error: "Could not link the task activity records." }, 500);
     }
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await store
     .from("todos")
     .update({
       completed: true,
@@ -111,8 +111,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   if (error || !data) {
     if (activityEntryIds.length) {
-      await supabase.from("todo_activity_entries").delete().eq("todo_id", id).in("activity_entry_id", activityEntryIds);
-      await supabase.from("activity_entries").delete().in("id", activityEntryIds).eq("owner_id", user.id);
+      await store.from("todo_activity_entries").delete().eq("todo_id", id).in("activity_entry_id", activityEntryIds);
+      await store.from("activity_entries").delete().in("id", activityEntryIds).eq("owner_id", user.id);
     }
     if (error) return json({ error: "Could not complete the task." }, 500);
     return json({ error: "Task not found." }, 404);

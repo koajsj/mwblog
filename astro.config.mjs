@@ -30,9 +30,4 @@ export default defineConfig({
   adapter: node({
     mode: 'standalone',
   }),
-  vite: {
-    ssr: {
-      noExternal: ['@supabase/supabase-js'],
-    },
-  },
 });

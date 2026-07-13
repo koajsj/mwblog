@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
 import { readEncryptedText } from "../../../lib/private-payload";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 import { json, normalizeDate } from "../../../lib/todo-utils";
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -19,8 +19,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const dueOn = normalizeDate(form.get("due_on"));
   if (!dueOn) return json({ error: "Please pick a due date (YYYY-MM-DD)." }, 400);
 
-  const supabase = createLocalsClient(locals);
-  const { error } = await supabase
+  const store = createLocalsClient(locals);
+  const { error } = await store
     .from("todos")
     .insert({ owner_id: user.id, title, due_on: dueOn });
 

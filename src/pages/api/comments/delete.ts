@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
 import { safeLocalRedirect } from "../../../lib/redirect";
 import { isUuid } from "../../../lib/security";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const user = locals.user;
@@ -16,9 +16,9 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Missing comment id.")}`, 303);
   }
 
-  const supabase = createLocalsClient(locals);
+  const store = createLocalsClient(locals);
   // 只能删自己的评论
-  const { error } = await supabase
+  const { error } = await store
     .from("comments")
     .delete()
     .eq("id", id)

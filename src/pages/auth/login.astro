@@ -448,7 +448,7 @@ const redirectTo = safeLocalRedirect(Astro.url.searchParams.get("redirect") || "
             <input type="hidden" name="redirect" value={redirectTo} />
 
             <div class="form-group">
-              <label id="email-label" for="account">Account</label>
+              <label id="account-label" for="account">Account</label>
               <div class="input-wrapper">
                 <input type="text" id="account" name="account" placeholder="kikou or scoinmic" autocomplete="username" required />
               </div>
@@ -500,7 +500,7 @@ const redirectTo = safeLocalRedirect(Astro.url.searchParams.get("redirect") || "
     <script is:inline define:vars={{ initialError: error }}>
       // ============ PASSWORD TOGGLE ============
       const passwordInput = document.getElementById("password");
-      const emailInput = document.getElementById("account");
+      const accountInput = document.getElementById("account");
       const toggleBtn = document.getElementById("toggle-password");
       const eyeIcon = document.getElementById("eye-icon");
       const eyeOffIcon = document.getElementById("eye-off-icon");
@@ -536,9 +536,9 @@ const redirectTo = safeLocalRedirect(Astro.url.searchParams.get("redirect") || "
         });
       }
 
-      emailInput.addEventListener("focus", () => setTyping(true));
-      emailInput.addEventListener("blur", () => setTyping(false));
-      emailInput.addEventListener("input", updateCharacters);
+      accountInput.addEventListener("focus", () => setTyping(true));
+      accountInput.addEventListener("blur", () => setTyping(false));
+      accountInput.addEventListener("input", updateCharacters);
       passwordInput.addEventListener("focus", () => { isPasswordFocused = true; updateCharacters(); });
       passwordInput.addEventListener("blur", () => { isPasswordFocused = false; updateCharacters(); });
       passwordInput.addEventListener("input", updateCharacters);
@@ -837,33 +837,32 @@ const redirectTo = safeLocalRedirect(Astro.url.searchParams.get("redirect") || "
       // ============ FORM VALIDATION + SUBMIT ============
       const loginForm = document.getElementById("login-form");
       const errEl = document.getElementById("error-msg");
-      const emailLabel = document.getElementById("email-label");
+      const accountLabel = document.getElementById("account-label");
       const pwdLabel = document.getElementById("password-label");
       const btn = document.getElementById("btn-login");
 
-      loginForm.addEventListener("submit", (e) => {
-        const account = emailInput.value.trim().toLowerCase();
+      loginForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const account = accountInput.value.trim().toLowerCase();
         const pwd = passwordInput.value;
 
         // Reset
         errEl.style.display = "none";
         errEl.textContent = "";
-        emailInput.classList.remove("error");
+        accountInput.classList.remove("error");
         passwordInput.classList.remove("error");
-        emailLabel.classList.remove("error-label");
+        accountLabel.classList.remove("error-label");
         pwdLabel.classList.remove("error-label");
 
         if (account !== "kikou" && account !== "scoinmic") {
-          e.preventDefault();
-          emailInput.classList.add("error");
-          emailLabel.classList.add("error-label");
+          accountInput.classList.add("error");
+          accountLabel.classList.add("error-label");
           errEl.textContent = "Please enter account kikou or scoinmic.";
           errEl.style.display = "block";
           triggerLoginError();
           return;
         }
         if (!pwd || pwd.length < 6) {
-          e.preventDefault();
           passwordInput.classList.add("error");
           pwdLabel.classList.add("error-label");
           errEl.textContent = "Password must be at least 6 characters.";
@@ -872,9 +871,23 @@ const redirectTo = safeLocalRedirect(Astro.url.searchParams.get("redirect") || "
           return;
         }
 
-        // Pass client-side checks → let the form POST to /api/auth/login
         btn.querySelector(".btn-text").textContent = "Logging in...";
         btn.disabled = true;
+        try {
+          const response = await fetch(loginForm.action, {
+            method: "POST",
+            body: new FormData(loginForm),
+            credentials: "same-origin",
+          });
+          if (!response.ok) throw new Error("Login request failed.");
+          window.location.assign(response.url || "/?skipCover=1#home");
+        } catch {
+          btn.querySelector(".btn-text").textContent = "Log in";
+          btn.disabled = false;
+          errEl.textContent = "Could not reach the private space. Please try again.";
+          errEl.style.display = "block";
+          triggerLoginError();
+        }
       });
 
       // 初始：如果服务端通过 ?error= 返回错误，自动播一次摇头

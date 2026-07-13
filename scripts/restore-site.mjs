@@ -1,104 +1,51 @@
 import { createDecipheriv, createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import {
-  createReadStream,
-  createWriteStream,
-  existsSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  readSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  copyFileSync,
-} from "node:fs";
+import { closeSync, cpSync, createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { chmod, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { createClient } from "@supabase/supabase-js";
+import { DatabaseSync } from "node:sqlite";
 
-const MAGIC = "MWBLOG_BACKUP_V1";
+const MAGIC = "MWBLOG_BACKUP_V2";
 const TAG_BYTES = 16;
 
-const RESTORE_TABLES = [
-  "blog_posts",
-  "life_records",
-  "activity_entries",
-  "places",
-  "photos",
-  "todos",
-  "todo_activity_entries",
-  "comments",
-  "private_space_keys",
-];
-
-const OWNER_FIELDS = new Map([
-  ["blog_posts", "author_id"],
-  ["life_records", "owner_id"],
-  ["activity_entries", "owner_id"],
-  ["places", "owner_id"],
-  ["photos", "owner_id"],
-  ["todos", "owner_id"],
-  ["comments", "author_id"],
-]);
-
-function loadDotEnv(path = resolve(process.cwd(), ".env")) {
-  if (!existsSync(path)) return;
-
-  for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
+function loadDotEnv() {
+  const envPath = resolve(process.cwd(), ".env");
+  if (!existsSync(envPath)) return;
+  for (const line of readFileSync(envPath, "utf8").split(/\r?\n/)) {
     const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$/);
-    if (!match) continue;
-    const [, key, rawValue] = match;
-    if (process.env[key]) continue;
-    process.env[key] = rawValue.replace(/^["']|["']$/g, "");
+    if (match && !process.env[match[1]]) process.env[match[1]] = match[2].replace(/^["']|["']$/g, "");
   }
 }
 
 function decodeKey(raw) {
   const value = String(raw || "").trim();
-  if (!value) return null;
   if (/^[0-9a-f]{64}$/i.test(value)) return Buffer.from(value, "hex");
-  try {
-    const decoded = Buffer.from(value, "base64");
-    if (decoded.length === 32) return decoded;
-  } catch {}
-  return null;
-}
-
-function backupKeyFromEnv() {
-  const key = decodeKey(process.env.BACKUP_ENCRYPTION_KEY);
-  if (key) return key;
-  if (process.env.ALLOW_LEGACY_BACKUP_PASSWORD === "1" && process.env.BACKUP_PASSWORD) {
-    console.warn("Using the legacy password-derived backup key for recovery only.");
-    return createHash("sha256").update(process.env.BACKUP_PASSWORD).digest();
-  }
-  return null;
+  try { const key = Buffer.from(value, "base64"); return key.length === 32 ? key : null; } catch { return null; }
 }
 
 function readHeader(path) {
   const fd = openSync(path, "r");
-  const buffer = Buffer.alloc(4096);
-  const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
-  const newline = buffer.subarray(0, bytesRead).indexOf(10);
-  if (newline <= 0) throw new Error("Invalid backup header");
-
-  const line = buffer.subarray(0, newline).toString("utf8");
-  if (!line.startsWith(`${MAGIC} `)) throw new Error("Unsupported backup format");
-  return { headerBytes: newline + 1, meta: JSON.parse(line.slice(MAGIC.length + 1)) };
+  try {
+    const buffer = Buffer.alloc(4096);
+    const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+    const newline = buffer.subarray(0, bytesRead).indexOf(10);
+    if (newline <= 0) throw new Error("Invalid backup header.");
+    const line = buffer.subarray(0, newline).toString("utf8");
+    if (!line.startsWith(`${MAGIC} `)) throw new Error("Unsupported backup version.");
+    return { headerBytes: newline + 1, meta: JSON.parse(line.slice(MAGIC.length + 1)) };
+  } finally { closeSync(fd); }
 }
 
-async function decryptBackup(input, output, key) {
+async function decrypt(input, output, key) {
   const { headerBytes, meta } = readHeader(input);
   const size = statSync(input).size;
   const tag = Buffer.alloc(TAG_BYTES);
   const fd = openSync(input, "r");
-  readSync(fd, tag, 0, TAG_BYTES, size - TAG_BYTES);
-
+  try { readSync(fd, tag, 0, TAG_BYTES, size - TAG_BYTES); } finally { closeSync(fd); }
   const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(meta.iv, "base64url"));
   decipher.setAuthTag(tag);
-
   await pipeline(
     createReadStream(input, { start: headerBytes, end: size - TAG_BYTES - 1 }),
     decipher,
@@ -106,174 +53,116 @@ async function decryptBackup(input, output, key) {
   );
 }
 
-function readJson(path) {
-  if (!existsSync(path)) return [];
-  return JSON.parse(readFileSync(path, "utf8"));
+function safeFile(root, relativePath) {
+  const target = resolve(root, relativePath);
+  if (target !== root && !target.startsWith(`${root}${sep}`)) throw new Error("Unsafe path in backup manifest.");
+  return target;
 }
 
-function remapOwner(row, table, idMap) {
-  const next = { ...row };
-  if (table === "private_space_keys") {
-    if (next.created_by) next.created_by = idMap.get(next.created_by) || next.created_by;
-    if (next.updated_by) next.updated_by = idMap.get(next.updated_by) || next.updated_by;
-    return next;
+function sha256(path) { return createHash("sha256").update(readFileSync(path)).digest("hex"); }
+
+function validateArchiveListing(path) {
+  const listed = spawnSync("tar", ["-tzf", path], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
+  if (listed.status !== 0) throw new Error("Could not inspect backup archive.");
+  for (const raw of listed.stdout.split(/\r?\n/).filter(Boolean)) {
+    const entry = raw.replace(/^\.\//, "").replace(/\/$/, "");
+    if (!entry || entry === ".") continue;
+    if (entry.includes("\\") || entry.startsWith("/") || entry.split("/").includes("..")) {
+      throw new Error("Unsafe path in backup archive.");
+    }
+    if (entry !== "manifest.json" && entry !== "data" && !entry.startsWith("data/")) {
+      throw new Error("Unexpected file in backup archive.");
+    }
   }
-  const ownerField = OWNER_FIELDS.get(table);
-  if (ownerField && next[ownerField]) {
-    next[ownerField] = idMap.get(next[ownerField]) || next[ownerField];
-  }
-  return next;
 }
 
-async function upsertRows(supabase, table, rows) {
-  for (let i = 0; i < rows.length; i += 500) {
-    const chunk = rows.slice(i, i + 500);
-    if (!chunk.length) continue;
-    const { error } = await supabase.from(table).upsert(chunk);
-    if (error) throw new Error(`${table}: ${error.message}`);
-  }
-  console.log(`${table}: restored ${rows.length} rows`);
-}
-
-function walkFiles(dir) {
-  if (!existsSync(dir)) return [];
+function walkExtracted(root) {
   const files = [];
-  for (const name of readdirSync(dir)) {
-    const path = join(dir, name);
-    const stat = statSync(path);
-    if (stat.isDirectory()) files.push(...walkFiles(path));
-    if (stat.isFile()) files.push(path);
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    const info = lstatSync(path);
+    if (info.isSymbolicLink() || (!info.isDirectory() && !info.isFile())) {
+      throw new Error("Backup contains an unsupported file type.");
+    }
+    if (info.isDirectory()) files.push(...walkExtracted(path));
+    else files.push(path);
   }
   return files;
 }
 
-async function ensureBucket(supabase, name, options) {
-  const { data } = await supabase.storage.getBucket(name);
-  if (data) {
-    const { error } = await supabase.storage.updateBucket(name, options);
-    if (error) throw new Error(`${name}: ${error.message}`);
-    return;
+function validateBackup(root) {
+  const manifest = JSON.parse(readFileSync(join(root, "manifest.json"), "utf8"));
+  if (manifest.version !== 2 || manifest.database_schema_version !== 1 || !Array.isArray(manifest.files)) {
+    throw new Error("Unsupported backup manifest or database schema.");
   }
-  const { error } = await supabase.storage.createBucket(name, options);
-  if (error && !/already exists/i.test(error.message)) throw new Error(`${name}: ${error.message}`);
-}
-
-async function restoreStorage(supabase, root) {
-  await ensureBucket(supabase, "photos", {
-    public: false,
-    fileSizeLimit: 50 * 1024 * 1024,
-    allowedMimeTypes: ["application/octet-stream"],
-  });
-  await ensureBucket(supabase, "blog-markdown", {
-    public: false,
-    fileSizeLimit: 1024 * 1024,
-    allowedMimeTypes: ["text/markdown", "text/plain"],
-  });
-
-  for (const bucket of ["photos", "blog-markdown"]) {
-    const bucketDir = join(root, "storage", bucket);
-    const files = walkFiles(bucketDir);
-    for (const file of files) {
-      const storagePath = relative(bucketDir, file).split(sep).join("/");
-      const contentType = bucket === "photos" ? "application/octet-stream" : "text/plain; charset=utf-8";
-      const { error } = await supabase.storage.from(bucket).upload(storagePath, readFileSync(file), {
-        contentType,
-        upsert: true,
-      });
-      if (error) throw new Error(`${bucket}/${storagePath}: ${error.message}`);
+  const expectedFiles = new Set();
+  for (const item of manifest.files) {
+    if (!Number.isSafeInteger(item.bytes) || item.bytes < 0 || !/^[0-9a-f]{64}$/.test(String(item.sha256 || ""))) {
+      throw new Error("Backup manifest contains invalid file metadata.");
     }
-    console.log(`${bucket}: restored ${files.length} files`);
+    const path = safeFile(root, String(item.path || ""));
+    const relativePath = String(item.path || "").replaceAll("\\", "/");
+    if (!relativePath.startsWith("data/") || expectedFiles.has(path)) throw new Error("Backup manifest contains an unsafe or duplicate path.");
+    expectedFiles.add(path);
+    if (!existsSync(path) || statSync(path).size !== item.bytes || sha256(path) !== item.sha256) {
+      throw new Error(`Backup integrity check failed: ${item.path}`);
+    }
   }
-}
-
-async function restoreProfiles(supabase, root) {
-  const sourceProfiles = readJson(join(root, "tables", "profiles.json"));
-  const { data: targetProfiles, error } = await supabase.from("profiles").select("*");
-  if (error) throw error;
-
-  const targetByAuthor = new Map((targetProfiles || []).map((profile) => [profile.author_key, profile]));
-  const idMap = new Map();
-
-  for (const source of sourceProfiles) {
-    const target = targetByAuthor.get(source.author_key);
-    if (!target) continue;
-    idMap.set(source.id, target.id);
-
-    const patch = { ...source, id: target.id, email: target.email, author_key: target.author_key };
-    const { error: updateError } = await supabase.from("profiles").upsert(patch, { onConflict: "id" });
-    if (updateError) throw updateError;
+  const actualFiles = walkExtracted(join(root, "data"));
+  if (actualFiles.length !== expectedFiles.size || actualFiles.some((path) => !expectedFiles.has(path))) {
+    throw new Error("Backup archive contains files not covered by the integrity manifest.");
   }
-
-  console.log(`profiles: restored ${idMap.size} mapped profiles`);
-  return idMap;
-}
-
-async function prepareBackupRoot(input, key) {
-  const tempRoot = await mkdtemp(join(tmpdir(), "mwblog-restore-"));
-  await chmod(tempRoot, 0o700);
-
-  if (statSync(input).isDirectory()) {
-    return { root: input, cleanup: () => rmSync(tempRoot, { recursive: true, force: true }) };
-  }
-
-  const tarPath = join(tempRoot, "backup.tar.gz");
-  if (input.endsWith(".enc")) {
-    if (!key) throw new Error("Missing or invalid BACKUP_ENCRYPTION_KEY.");
-    await decryptBackup(input, tarPath, key);
-  } else {
-    copyFileSync(input, tarPath);
-  }
-
-  const root = join(tempRoot, "unpacked");
-  mkdirSync(root, { recursive: true });
-  const tar = spawnSync("tar", ["-xzf", tarPath, "-C", root], { stdio: "inherit" });
-  if (tar.status !== 0) throw new Error("Could not extract backup tarball.");
-  return { root, cleanup: () => rmSync(tempRoot, { recursive: true, force: true }) };
+  const dbPath = join(root, "data", "our-nest.sqlite");
+  const database = new DatabaseSync(dbPath);
+  try {
+    const integrity = database.prepare("PRAGMA integrity_check").get();
+    if (integrity?.integrity_check !== "ok") throw new Error("SQLite integrity check failed.");
+    const profiles = database.prepare("SELECT account, author_key FROM profiles ORDER BY author_key").all();
+    const identities = new Set(profiles.map((row) => `${row.account}|${row.author_key}`));
+    if (!identities.has("kikou|white") || !identities.has("scoinmic|brown")) {
+      throw new Error("Fixed account mappings are missing from the backup.");
+    }
+    database.exec("DELETE FROM sessions");
+  } finally { database.close(); }
 }
 
 async function main() {
   loadDotEnv();
-  const input = process.argv[2];
-  if (!input) {
-    console.error("Usage: npm run restore -- /path/to/mwblog-backup.tar.gz.enc");
-    process.exit(1);
-  }
+  const input = process.argv[2] ? resolve(process.argv[2]) : "";
+  const key = decodeKey(process.env.BACKUP_ENCRYPTION_KEY);
+  if (!input || !existsSync(input) || !key) throw new Error("Usage: npm run restore -- /path/to/backup.tar.gz.enc");
 
-  const url = process.env.SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const backupKey = backupKeyFromEnv();
-  if (!url || !serviceRoleKey) {
-    console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
-    process.exit(1);
-  }
-
-  if (process.env.SKIP_SETUP_USERS !== "1") {
-    const setup = spawnSync("npm", ["run", "setup:users"], { stdio: "inherit", shell: process.platform === "win32" });
-    if (setup.status !== 0) throw new Error("setup:users failed");
-  }
-
-  const prepared = await prepareBackupRoot(resolve(input), backupKey);
+  const dataDir = resolve(process.env.APP_DATA_DIR || ".data");
+  const workDir = await mkdtemp(join(tmpdir(), "mwblog-restore-"));
+  await chmod(workDir, 0o700);
+  const tarPath = join(workDir, "backup.tar.gz");
+  const unpacked = join(workDir, "unpacked");
+  const staged = `${dataDir}.restore-${process.pid}`;
+  const previous = `${dataDir}.before-restore-${process.pid}`;
   try {
-    const supabase = createClient(url, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    await decrypt(input, tarPath, key);
+    validateArchiveListing(tarPath);
+    mkdirSync(unpacked, { recursive: true });
+    const tar = spawnSync("tar", ["-xzf", tarPath, "--no-same-owner", "--no-same-permissions", "-C", unpacked], { stdio: "inherit" });
+    if (tar.status !== 0) throw new Error("Could not extract backup.");
+    validateBackup(unpacked);
 
-    const { error: lockError } = await supabase
-      .from("private_security_state")
-      .upsert({ space_id: "private-couple-space", version: 22, verified_at: null });
-    if (lockError) throw lockError;
-
-    const idMap = await restoreProfiles(supabase, prepared.root);
-    for (const table of RESTORE_TABLES) {
-      const rows = readJson(join(prepared.root, "tables", `${table}.json`)).map((row) => remapOwner(row, table, idMap));
-      await upsertRows(supabase, table, rows);
+    rmSync(staged, { recursive: true, force: true });
+    cpSync(join(unpacked, "data"), staged, { recursive: true });
+    mkdirSync(dirname(dataDir), { recursive: true });
+    if (existsSync(dataDir)) renameSync(dataDir, previous);
+    try {
+      renameSync(staged, dataDir);
+      rmSync(previous, { recursive: true, force: true });
+    } catch (error) {
+      if (existsSync(dataDir)) rmSync(dataDir, { recursive: true, force: true });
+      if (existsSync(previous)) renameSync(previous, dataDir);
+      throw error;
     }
-    await restoreStorage(supabase, prepared.root);
-    const securityState = readJson(join(prepared.root, "tables", "private_security_state.json"));
-    await upsertRows(supabase, "private_security_state", securityState);
-    console.log("Restore complete.");
+    console.log("Restore complete. Existing sessions were cleared.");
   } finally {
-    prepared.cleanup();
+    rmSync(staged, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
   }
 }
 

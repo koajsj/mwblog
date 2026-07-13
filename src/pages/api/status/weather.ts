@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
 import { readEncryptedText } from "../../../lib/private-payload";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -28,8 +28,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
   if (!text) return json({ ok: false, error: "empty text" }, 400);
 
-  const supabase = createLocalsClient(locals);
-  const { error } = await supabase
+  const store = createLocalsClient(locals);
+  const { error } = await store
     .from("profiles")
     .update({
       weather_text: text,

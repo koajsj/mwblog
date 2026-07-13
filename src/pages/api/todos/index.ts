@@ -1,13 +1,13 @@
 import type { APIRoute } from "astro";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 import { isMissingTodoActivityLinkTable, json } from "../../../lib/todo-utils";
 import { asRows, type AuthorKey, type TodoCompletionRange, type TodoItem } from "../../../lib/types";
 
 export const GET: APIRoute = async ({ url, locals }) => {
   if (!locals.user) return json({ error: "Please log in first." }, 401);
   const view = (url.searchParams.get("view") === "brown" ? "brown" : "white") as AuthorKey;
-  const supabase = createLocalsClient(locals);
-  const { data, error } = await supabase
+  const store = createLocalsClient(locals);
+  const { data, error } = await store
     .from("todos")
     .select("id,owner_id,title,due_on,completed,completed_on,completed_start_time,completed_end_time,completed_minutes,activity_entry_id,archived_at,created_at,updated_at,profiles(display_name,author_key)")
     .order("created_at", { ascending: true });
@@ -18,7 +18,7 @@ export const GET: APIRoute = async ({ url, locals }) => {
   const todoIds = todos.map((todo) => todo.id);
 
   if (todoIds.length) {
-    const { data: links, error: linkError } = await supabase
+    const { data: links, error: linkError } = await store
       .from("todo_activity_entries")
       .select("todo_id,activity_entries(start_time,end_time,minutes)")
       .in("todo_id", todoIds);

@@ -1,52 +1,19 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { createServiceClient } from "./supabase";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { createServiceClient } from "./local-store";
+import { storageRoot } from "./local-store";
 
 let checked = false;
 
-async function ensureBucket(
-  name: string,
-  options: { public: boolean; fileSizeLimit: number; allowedMimeTypes?: string[] },
-) {
-  const service = createServiceClient();
-  const { data } = await service.storage.getBucket(name);
-
-  if (data) {
-    const { error } = await service.storage.updateBucket(name, {
-      public: options.public,
-      fileSizeLimit: options.fileSizeLimit,
-      allowedMimeTypes: options.allowedMimeTypes,
-    });
-    if (error) {
-      throw new Error(`Failed to update storage bucket ${name}: ${error.message}`);
-    }
-    return;
-  }
-
-  const { error } = await service.storage.createBucket(name, {
-    public: options.public,
-    fileSizeLimit: options.fileSizeLimit,
-    allowedMimeTypes: options.allowedMimeTypes,
-  });
-
-  if (error && !/already exists/i.test(error.message)) {
-    throw new Error(`Failed to create storage bucket ${name}: ${error.message}`);
-  }
+async function ensureBucket(name: string) {
+  await mkdir(join(storageRoot, name), { recursive: true, mode: 0o700 });
 }
 
 export async function ensureStorageBuckets() {
   if (checked) return;
 
-  await ensureBucket("photos", {
-    public: false,
-    fileSizeLimit: 50 * 1024 * 1024,
-    allowedMimeTypes: ["application/octet-stream"],
-  });
-
-  await ensureBucket("blog-markdown", {
-    public: false,
-    fileSizeLimit: 1024 * 1024,
-    allowedMimeTypes: ["text/markdown", "text/plain"],
-  });
+  await ensureBucket("photos");
+  await ensureBucket("blog-markdown");
 
   checked = true;
 }
@@ -58,14 +25,14 @@ export async function attachPrivatePhotoUrls<T extends { id: string; storage_pat
   }));
 }
 
-export async function storageObjectExists(supabase: SupabaseClient, bucket: string, path: string) {
+export async function storageObjectExists(store: ReturnType<typeof createServiceClient>, bucket: string, path: string) {
   const cleanPath = path.replace(/^\/+/, "");
   const slash = cleanPath.lastIndexOf("/");
   const folder = slash >= 0 ? cleanPath.slice(0, slash) : "";
   const filename = slash >= 0 ? cleanPath.slice(slash + 1) : cleanPath;
   if (!filename) return false;
 
-  const { data, error } = await supabase.storage.from(bucket).list(folder, {
+  const { data, error } = await store.storage.from(bucket).list(folder, {
     limit: 1,
     search: filename,
   });
@@ -74,7 +41,7 @@ export async function storageObjectExists(supabase: SupabaseClient, bucket: stri
   return Boolean((data || []).some((item) => item.name === filename));
 }
 
-export async function removeStoragePaths(_supabase: SupabaseClient, bucket: string, paths: string[]) {
+export async function removeStoragePaths(_store: unknown, bucket: string, paths: string[]) {
   const cleanPaths = paths.map((path) => path.trim()).filter(Boolean);
   if (!cleanPaths.length) return;
   await createServiceClient().storage.from(bucket).remove(cleanPaths);

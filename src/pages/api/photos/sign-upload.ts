@@ -2,7 +2,7 @@ import type { APIRoute } from "astro";
 import { extensionFromName, MAX_PHOTO_BYTES, isAllowedImageType } from "../../../lib/files";
 import { parseEncryptedFileHeader } from "../../../lib/private-payload";
 import { ensureStorageBuckets } from "../../../lib/storage";
-import { createServiceClient } from "../../../lib/supabase";
+import { createServiceClient } from "../../../lib/local-store";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -32,10 +32,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return json({ error: "Photo storage is temporarily unavailable." }, 500);
   }
 
-  const sourceBytes = new Uint8Array(await file.arrayBuffer());
+  const headerBytes = new Uint8Array(await file.slice(0, 2048).arrayBuffer());
   let detectedType = "";
   try {
-    const encryptedFile = parseEncryptedFileHeader(sourceBytes);
+    const encryptedFile = parseEncryptedFileHeader(headerBytes);
     if (!encryptedFile.current) throw new Error("Photo must use the current client-encryption format.");
     detectedType = encryptedFile.mimeType;
   } catch (error) {
@@ -47,7 +47,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const path = `${user.id}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
 
   const storage = createServiceClient().storage.from("photos");
-  const { error } = await storage.upload(path, sourceBytes, {
+  const { error } = await storage.upload(path, file, {
     contentType: "application/octet-stream",
     upsert: false,
   });

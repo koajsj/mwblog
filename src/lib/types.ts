@@ -10,7 +10,7 @@ export function asRow<T>(value: unknown): T {
 
 export interface Profile {
   id: string;
-  email: string;
+  account: string;
   author_key: AuthorKey;
   display_name: string;
   created_at: string;

@@ -3,7 +3,7 @@ import { isIsoCalendarDate } from "../../../lib/datetime";
 import { isAllowedImageType, isOwnedStoragePath } from "../../../lib/files";
 import { readEncryptedText } from "../../../lib/private-payload";
 import { removeStoragePaths, storageObjectExists } from "../../../lib/storage";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 
 const validMoods = new Set(["happy", "loved", "calm", "tired", "down", "moody"]);
 const MAX_RECORD_PHOTOS = 12;
@@ -45,22 +45,22 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return json({ error: `Please keep each record to ${MAX_RECORD_PHOTOS} photos or fewer.` }, 400);
   }
 
-  const supabase = createLocalsClient(locals);
+  const store = createLocalsClient(locals);
   const validPhotos: Array<{ path: string; mimeType: string }> = [];
   for (const item of photos) {
     const path = String(item?.path || "").trim();
     const mimeType = String(item?.mime_type || "").trim();
     if (!isOwnedStoragePath(path, user.id)) continue;
     if (!isAllowedImageType(mimeType)) continue;
-    if (!(await storageObjectExists(supabase, "photos", path))) continue;
+    if (!(await storageObjectExists(store, "photos", path))) continue;
     validPhotos.push({ path, mimeType });
   }
   if (photos.length && validPhotos.length !== photos.length) {
-    await removeStoragePaths(supabase, "photos", validPhotos.map((photo) => photo.path));
+    await removeStoragePaths(store, "photos", validPhotos.map((photo) => photo.path));
     return json({ error: "One or more uploaded photos could not be verified. Please choose them again." }, 400);
   }
 
-  const { data: record, error: insertError } = await supabase
+  const { data: record, error: insertError } = await store
     .from("life_records")
     .insert({
       owner_id: user.id,
@@ -72,13 +72,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
     .single();
 
   if (insertError) {
-    await removeStoragePaths(supabase, "photos", validPhotos.map((photo) => photo.path));
+    await removeStoragePaths(store, "photos", validPhotos.map((photo) => photo.path));
     return json({ error: "Could not save the life record." }, 500);
   }
 
   const insertedPhotoPaths: string[] = [];
   for (const item of validPhotos) {
-    const { error: photoError } = await supabase.from("photos").insert({
+    const { error: photoError } = await store.from("photos").insert({
       owner_id: user.id,
       title: null,
       caption: photoCaption,
@@ -88,9 +88,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
     });
 
     if (photoError) {
-      await supabase.from("photos").delete().in("storage_path", insertedPhotoPaths);
-      if (record?.id) await supabase.from("life_records").delete().eq("id", record.id);
-      await removeStoragePaths(supabase, "photos", validPhotos.map((photo) => photo.path));
+      await store.from("photos").delete().in("storage_path", insertedPhotoPaths);
+      if (record?.id) await store.from("life_records").delete().eq("id", record.id);
+      await removeStoragePaths(store, "photos", validPhotos.map((photo) => photo.path));
       return json({ error: "Could not attach the encrypted photos to this record." }, 500);
     }
     insertedPhotoPaths.push(item.path);

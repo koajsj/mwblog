@@ -1,11 +1,21 @@
 export const FIXED_ACCOUNTS = {
-  kikou: { email: "kikou@our-nest.local", authorKey: "white", displayName: "kikou" },
-  scoinmic: { email: "scoinmic@our-nest.local", authorKey: "brown", displayName: "scoinmic" },
+  kikou: {
+    id: "00000000-0000-4000-8000-000000000001",
+    account: "kikou",
+    authorKey: "white",
+    displayName: "kikou",
+  },
+  scoinmic: {
+    id: "00000000-0000-4000-8000-000000000002",
+    account: "scoinmic",
+    authorKey: "brown",
+    displayName: "scoinmic",
+  },
 } as const;
 
 export type FixedAccountName = keyof typeof FIXED_ACCOUNTS;
 
-function normalizeEmail(value: string | null | undefined) {
+function normalizeAccount(value: string | null | undefined) {
   return String(value || "").trim().toLowerCase();
 }
 
@@ -15,16 +25,16 @@ export function resolveFixedAccount(value: string) {
   return null;
 }
 
-export function resolveFixedAccountByEmail(value: string | null | undefined) {
-  const email = normalizeEmail(value);
-  return Object.values(FIXED_ACCOUNTS).find((account) => normalizeEmail(account.email) === email) || null;
+export function resolveFixedAccountByName(value: string | null | undefined) {
+  const name = normalizeAccount(value);
+  return Object.values(FIXED_ACCOUNTS).find((account) => normalizeAccount(account.account) === name) || null;
 }
 
-export function isAllowedPrivateProfile(profile: { email?: string | null; author_key?: string | null } | null | undefined, email?: string | null) {
+export function isAllowedPrivateProfile(profile: { account?: string | null; author_key?: string | null } | null | undefined, account?: string | null) {
   if (!profile) return false;
 
-  const allowed = resolveFixedAccountByEmail(email || profile.email);
+  const allowed = resolveFixedAccountByName(account || profile.account);
   if (!allowed) return false;
 
-  return normalizeEmail(profile.email) === normalizeEmail(allowed.email) && profile.author_key === allowed.authorKey;
+  return normalizeAccount(profile.account) === normalizeAccount(allowed.account) && profile.author_key === allowed.authorKey;
 }

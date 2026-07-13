@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
 import { readEncryptedText } from "../../../lib/private-payload";
 import { isUuid } from "../../../lib/security";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 import { json } from "../../../lib/todo-utils";
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -19,8 +19,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!isUuid(id)) return json({ error: "Missing task id." }, 400);
   if (!title) return json({ error: "Please enter a task." }, 400);
 
-  const supabase = createLocalsClient(locals);
-  const { data, error } = await supabase
+  const store = createLocalsClient(locals);
+  const { data, error } = await store
     .from("todos")
     .update({ title })
     .eq("id", id)

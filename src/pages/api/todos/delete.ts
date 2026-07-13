@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
 import { isUuid } from "../../../lib/security";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 import { deleteLinkedTodoActivities, json } from "../../../lib/todo-utils";
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -11,8 +11,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const id = String(form.get("id") || "").trim();
   if (!isUuid(id)) return json({ error: "Missing task id." }, 400);
 
-  const supabase = createLocalsClient(locals);
-  const { data: todo, error: readError } = await supabase
+  const store = createLocalsClient(locals);
+  const { data: todo, error: readError } = await store
     .from("todos")
     .select("id,completed,activity_entry_id")
     .eq("id", id)
@@ -23,7 +23,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!todo) return json({ error: "Task not found." }, 404);
 
   if (todo.completed) {
-    const { error } = await supabase
+    const { error } = await store
       .from("todos")
       .update({ archived_at: new Date().toISOString() })
       .eq("id", id)
@@ -33,14 +33,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   const activityError = await deleteLinkedTodoActivities(
-    supabase,
+    store,
     user.id,
     [id],
     todo.activity_entry_id ? [todo.activity_entry_id as string] : [],
   );
   if (activityError) return json({ error: "Could not remove the linked activity records." }, 500);
 
-  const { error } = await supabase.from("todos").delete().eq("id", id).eq("owner_id", user.id);
+  const { error } = await store.from("todos").delete().eq("id", id).eq("owner_id", user.id);
   if (error) return json({ error: "Could not delete the task." }, 500);
   return json({ ok: true });
 };

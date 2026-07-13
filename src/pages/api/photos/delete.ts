@@ -2,7 +2,7 @@ import type { APIRoute } from "astro";
 import { isOwnedStoragePath } from "../../../lib/files";
 import { safeLocalRedirect } from "../../../lib/redirect";
 import { isUuid } from "../../../lib/security";
-import { createLocalsClient, createServiceClient } from "../../../lib/supabase";
+import { createLocalsClient, createServiceClient } from "../../../lib/local-store";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const user = locals.user;
@@ -18,8 +18,8 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Missing photo ID")}`, 303);
   }
 
-  const supabase = createLocalsClient(locals);
-  const { data: photo, error: readError } = await supabase
+  const store = createLocalsClient(locals);
+  const { data: photo, error: readError } = await store
     .from("photos")
     .select("id,storage_path")
     .eq("id", id)
@@ -34,14 +34,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Photo not found, or it does not belong to the current account")}`, 303);
   }
 
-  if (isOwnedStoragePath(photo.storage_path, user.id)) {
-    const { error: storageError } = await createServiceClient().storage.from("photos").remove([photo.storage_path]);
-    if (storageError && !/not found/i.test(storageError.message)) {
-      return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not remove the encrypted photo file.")}`, 303);
-    }
-  }
-
-  const { error: deleteError } = await supabase
+  const { error: deleteError } = await store
     .from("photos")
     .delete()
     .eq("id", id)
@@ -49,6 +42,10 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
 
   if (deleteError) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not delete the photo.")}`, 303);
+  }
+
+  if (isOwnedStoragePath(photo.storage_path, user.id)) {
+    await createServiceClient().storage.from("photos").remove([photo.storage_path]);
   }
 
   return redirect(`${safeReturn}${sep}deleted=photo`, 303);

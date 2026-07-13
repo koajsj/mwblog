@@ -2,214 +2,101 @@
 set -Eeuo pipefail
 
 APP_NAME="${APP_NAME:-mwblog}"
-APP_DIR="${APP_DIR:-/opt/${APP_NAME}}"
+APP_ROOT="${APP_ROOT:-/opt/${APP_NAME}}"
+RELEASES_DIR="${APP_ROOT}/releases"
+CURRENT_LINK="${APP_ROOT}/current"
+DATA_DIR="${DATA_DIR:-/var/lib/${APP_NAME}}"
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/${APP_NAME}}"
+ENV_FILE="${ENV_FILE:-/etc/${APP_NAME}.env}"
 REPO_URL="${REPO_URL:-https://github.com/koajsj/mwblog.git}"
 BRANCH="${BRANCH:-main}"
+DOMAIN="${DOMAIN:-076113.xyz}"
 PORT="${PORT:-4321}"
-NODE_MAJOR="${NODE_MAJOR:-22}"
-DOMAIN="${DOMAIN:-${1:-076113.xyz}}"
 APP_USER="${APP_USER:-${APP_NAME}}"
-BACKUP_DIR="${BACKUP_DIR:-/var/backups/${APP_NAME}}"
-RUN_SETUP_USERS="${RUN_SETUP_USERS:-1}"
-RESET_FIXED_USER_PASSWORDS="${RESET_FIXED_USER_PASSWORDS:-1}"
-RUN_CLIENT_MIGRATION="${RUN_CLIENT_MIGRATION:-0}"
-CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
+NODE_MAJOR="${NODE_MAJOR:-22}"
+LOGIN_PASSWORD_HASH_DEFAULT='scrypt$CgVOR6AKPxC8GvlxbYfoRw$1SUYK2nVfVxIbOcJH_g3Bt8WQ368hOuZmlsgjufTXHk'
+NEW_RELEASE=""
+PREVIOUS_RELEASE="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
 
-SUDO=""
-if [ "$(id -u)" -ne 0 ]; then
-  SUDO="sudo"
-fi
+[ "$(id -u)" -eq 0 ] || { echo "Please run this deployment command with sudo." >&2; exit 1; }
+[[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || { echo "Invalid domain: $DOMAIN" >&2; exit 1; }
 
-need_env() {
-  local name="$1"
-  if [ -z "${!name:-}" ]; then
-    echo "Missing required environment variable: ${name}" >&2
-    exit 1
-  fi
-}
+log() { printf '\n==> %s\n' "$*"; }
+generate_key() { node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"; }
 
-log() {
-  printf "\n==> %s\n" "$*"
-}
-
-prompt_env() {
-  local name="$1"
-  local label="$2"
-  if [ -n "${!name:-}" ]; then
-    return
-  fi
-  if [ ! -r /dev/tty ]; then
-    need_env "$name"
-  fi
-  printf "%s: " "$label" >/dev/tty
-  IFS= read -r "$name" </dev/tty
-  export "$name"
-  need_env "$name"
-}
-
-generate_encryption_key() {
-  node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
-}
-
-env_has_value() {
-  local name="$1"
-  grep -Eq "^[[:space:]]*${name}=.+" "$APP_DIR/.env" 2>/dev/null
-}
-
-ensure_env_line() {
-  local name="$1"
-  local value="$2"
-  if grep -q "^${name}=" "$APP_DIR/.env" 2>/dev/null; then
-    return
-  fi
-  umask 077
-  printf "\n%s=%s\n" "$name" "$value" >> "$APP_DIR/.env"
-}
-
-set_env_line() {
-  local name="$1"
-  local value="$2"
-  if grep -q "^${name}=" "$APP_DIR/.env" 2>/dev/null; then
-    $SUDO sed -i "s|^${name}=.*|${name}=${value}|" "$APP_DIR/.env"
+rollback_deploy() {
+  local status="$?"
+  trap - ERR
+  echo "Deployment failed. Restoring the previous release." >&2
+  if [ -n "$PREVIOUS_RELEASE" ] && [ -d "$PREVIOUS_RELEASE" ]; then
+    ln -sfn "$PREVIOUS_RELEASE" "${CURRENT_LINK}.rollback"
+    mv -Tf "${CURRENT_LINK}.rollback" "$CURRENT_LINK"
+    systemctl restart "$APP_NAME" || true
   else
-    ensure_env_line "$name" "$value"
+    rm -f "$CURRENT_LINK"
+    systemctl stop "$APP_NAME" 2>/dev/null || true
   fi
+  [ -z "$NEW_RELEASE" ] || rm -rf "$NEW_RELEASE"
+  exit "$status"
+}
+trap rollback_deploy ERR
+
+install_packages() {
+  log "Installing Debian packages"
+  apt-get update
+  apt-get install -y ca-certificates curl gnupg git nginx certbot python3-certbot-nginx
+  if ! command -v node >/dev/null 2>&1 || ! node -v | grep -Eq "^v${NODE_MAJOR}\."; then
+    curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
+    apt-get install -y nodejs
+  fi
+  node -e "const [major,minor]=process.versions.node.split('.').map(Number); if(major<22||(major===22&&minor<16)) process.exit(1)" \
+    || { echo "Node.js 22.16 or newer is required." >&2; exit 1; }
 }
 
-ensure_app_origin() {
-  set_env_line "APP_ORIGIN" "${APP_ORIGIN:-https://${DOMAIN}}"
-}
-
-validate_env_file() {
-  local missing=0
-  local required=(
-    SUPABASE_URL
-    SUPABASE_ANON_KEY
-    SUPABASE_SERVICE_ROLE_KEY
-    BACKUP_ENCRYPTION_KEY
-  )
-
-  if [ ! -f "$APP_DIR/.env" ]; then
-    echo "Missing $APP_DIR/.env" >&2
-    exit 1
-  fi
-
-  for name in "${required[@]}"; do
-    if ! env_has_value "$name"; then
-      echo "Missing ${name} in $APP_DIR/.env" >&2
-      missing=1
-    fi
-  done
-
-  if [ "$missing" = "1" ]; then
-    exit 1
-  fi
-
-  $SUDO chown root:"$APP_USER" "$APP_DIR/.env"
-  $SUDO chmod 640 "$APP_DIR/.env"
-}
-
-ensure_app_user() {
+prepare_directories() {
   if ! id -u "$APP_USER" >/dev/null 2>&1; then
-    log "Creating restricted service account ${APP_USER}"
-    $SUDO useradd --system --user-group --no-create-home --shell /usr/sbin/nologin "$APP_USER"
+    useradd --system --user-group --no-create-home --shell /usr/sbin/nologin "$APP_USER"
   fi
-
-  $SUDO install -d -o "$APP_USER" -g "$APP_USER" -m 0700 "$BACKUP_DIR"
+  install -d -o root -g root -m 0755 "$APP_ROOT" "$RELEASES_DIR"
+  install -d -o "$APP_USER" -g "$APP_USER" -m 0700 "$DATA_DIR" "$DATA_DIR/storage" "$BACKUP_DIR"
+  if [ ! -f "$ENV_FILE" ]; then
+    umask 077
+    printf 'APP_ORIGIN=https://%s\nAPP_DATA_DIR=%s\nBACKUP_ENCRYPTION_KEY=%s\n' \
+      "$DOMAIN" "$DATA_DIR" "$(generate_key)" > "$ENV_FILE"
+  fi
+  if ! grep -q '^LOGIN_PASSWORD_HASH=' "$ENV_FILE"; then
+    printf "LOGIN_PASSWORD_HASH='%s'\n" "$LOGIN_PASSWORD_HASH_DEFAULT" >> "$ENV_FILE"
+  fi
+  chown root:"$APP_USER" "$ENV_FILE"
+  chmod 0640 "$ENV_FILE"
+  grep -Eq '^APP_ORIGIN=https://.+' "$ENV_FILE" || { echo "Invalid APP_ORIGIN in $ENV_FILE" >&2; exit 1; }
+  grep -Eq '^APP_DATA_DIR=/.+' "$ENV_FILE" || { echo "Invalid APP_DATA_DIR in $ENV_FILE" >&2; exit 1; }
+  grep -Eq "^LOGIN_PASSWORD_HASH='?scrypt\\\$[A-Za-z0-9_-]{22}\\\$[A-Za-z0-9_-]{43}'?$" "$ENV_FILE" \
+    || { echo "Invalid LOGIN_PASSWORD_HASH in $ENV_FILE" >&2; exit 1; }
+  runuser -u "$APP_USER" -- bash -c "set -a && source '$ENV_FILE' && set +a && node -e \"const k=String(process.env.BACKUP_ENCRYPTION_KEY||'').trim(); const b=/^[0-9a-f]{64}$/i.test(k)||Buffer.from(k,'base64').length===32; if(!b) process.exit(1)\"" \
+    || { echo "Invalid backup key in $ENV_FILE" >&2; exit 1; }
 }
 
-install_system_packages() {
-  log "Installing system packages"
-  $SUDO apt-get update
-  $SUDO apt-get install -y ca-certificates curl gnupg git nginx
-
-  if ! command -v node >/dev/null 2>&1 || ! node -v | grep -q "^v${NODE_MAJOR}\\."; then
-    curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | $SUDO bash -
-    $SUDO apt-get install -y nodejs
-  fi
-
-  $SUDO apt-get install -y certbot python3-certbot-nginx
+build_release() {
+  local stamp
+  stamp="$(date -u +%Y%m%d%H%M%S)"
+  NEW_RELEASE="$(mktemp -d "${RELEASES_DIR}/${stamp}-XXXXXX")"
+  log "Building release ${stamp}"
+  git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$NEW_RELEASE"
+  chown -R "$APP_USER":"$APP_USER" "$NEW_RELEASE"
+  runuser -u "$APP_USER" -- bash -c \
+    "set -a && source '$ENV_FILE' && set +a && cd '$NEW_RELEASE' && bash -n scripts/*.sh && npm ci && npm test && APP_DATA_DIR='$NEW_RELEASE/.build-data' npm run build && rm -rf '$NEW_RELEASE/.build-data'"
+  test -f "$NEW_RELEASE/dist/server/entry.mjs" || { echo "Build output is missing." >&2; exit 1; }
+  ln -sfn "$NEW_RELEASE" "${CURRENT_LINK}.new"
+  mv -Tf "${CURRENT_LINK}.new" "$CURRENT_LINK"
 }
 
-ensure_clean_checkout() {
-  if ! git -C "$APP_DIR" diff --quiet || ! git -C "$APP_DIR" diff --cached --quiet; then
-    echo "Git checkout has local changes. Commit or remove them before deploying: $APP_DIR" >&2
-    exit 1
-  fi
-}
-
-checkout_code() {
-  log "Checking out ${BRANCH}"
-  if [ -d "$APP_DIR/.git" ]; then
-    ensure_clean_checkout
-    git -C "$APP_DIR" remote set-url origin "$REPO_URL"
-    git -C "$APP_DIR" fetch origin "$BRANCH"
-    git -C "$APP_DIR" checkout "$BRANCH"
-    git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
-  else
-    $SUDO mkdir -p "$APP_DIR"
-    $SUDO chown -R "$(id -un):$(id -gn)" "$APP_DIR"
-    git clone --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
-  fi
-}
-
-write_env_file() {
-  log "Preparing environment file"
-  if [ -f "$APP_DIR/.env" ]; then
-    echo "Keeping existing $APP_DIR/.env"
-    ensure_env_line "BACKUP_ENCRYPTION_KEY" "$(generate_encryption_key)"
-    ensure_app_origin
-    validate_env_file
-    return
-  fi
-
-  prompt_env SUPABASE_URL "Supabase URL"
-  prompt_env SUPABASE_ANON_KEY "Supabase anon key"
-  prompt_env SUPABASE_SERVICE_ROLE_KEY "Supabase service role key"
-  BACKUP_ENCRYPTION_KEY="${BACKUP_ENCRYPTION_KEY:-$(generate_encryption_key)}"
-
-  umask 077
-  cat > "$APP_DIR/.env" <<EOF
-SUPABASE_URL=${SUPABASE_URL}
-SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY}
-EOF
-  ensure_app_origin
-  validate_env_file
-}
-
-install_dependencies() {
-  [ -f package-lock.json ] || { echo "package-lock.json is required." >&2; exit 1; }
-  npm ci
-}
-
-build_app() {
-  log "Installing dependencies and building"
-  cd "$APP_DIR"
-  install_dependencies
-  if [ "$RUN_SETUP_USERS" = "1" ]; then
-    RESET_FIXED_USER_PASSWORDS="$RESET_FIXED_USER_PASSWORDS" npm run setup:users
-  fi
-
-  if [ "$RUN_CLIENT_MIGRATION" = "1" ]; then
-    npm run migrate:client-encryption
-  else
-    echo "Skipping client-encryption migration. After applying migration 023, run it with SPACE_RECOVERY_CODE and SPACE_NEW_PASSPHRASE."
-  fi
-
-  npm test
-  npm run build
-}
-
-install_systemd_service() {
-  log "Installing systemd service"
+install_service() {
   local node_path
   node_path="$(command -v node)"
-
-  $SUDO tee "/etc/systemd/system/${APP_NAME}.service" >/dev/null <<EOF
+  cat > "/etc/systemd/system/${APP_NAME}.service" <<EOF
 [Unit]
-Description=${APP_NAME} Astro app
+Description=Our Nest private website
 After=network.target
 
 [Service]
@@ -217,13 +104,13 @@ Type=simple
 User=${APP_USER}
 Group=${APP_USER}
 UMask=0077
-WorkingDirectory=${APP_DIR}
-EnvironmentFile=${APP_DIR}/.env
+WorkingDirectory=${CURRENT_LINK}
+EnvironmentFile=${ENV_FILE}
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=${PORT}
 Environment=TMPDIR=/run/${APP_NAME}
-ExecStart=${node_path} ${APP_DIR}/dist/server/entry.mjs
+ExecStart=${node_path} ${CURRENT_LINK}/dist/server/entry.mjs
 Restart=always
 RestartSec=5
 RuntimeDirectory=${APP_NAME}
@@ -232,27 +119,54 @@ NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
 ProtectHome=true
-ProtectSystem=full
-ReadOnlyPaths=${APP_DIR}
-ReadWritePaths=/run/${APP_NAME} /tmp /var/tmp
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=${DATA_DIR} /run/${APP_NAME}
 
 [Install]
 WantedBy=multi-user.target
 EOF
-
-  $SUDO systemctl daemon-reload
-  $SUDO systemctl enable "${APP_NAME}"
-  $SUDO systemctl restart "${APP_NAME}"
+  systemctl daemon-reload
+  systemctl enable "$APP_NAME"
+  systemctl restart "$APP_NAME"
 }
 
-install_nginx_site() {
-  log "Installing Nginx site"
-  $SUDO tee "/etc/nginx/sites-available/${APP_NAME}" >/dev/null <<EOF
+install_nginx() {
+  cat > "/etc/nginx/sites-available/${APP_NAME}" <<EOF
 server {
   listen 80;
   server_name ${DOMAIN};
-  client_max_body_size 60m;
+  client_max_body_size 55m;
   add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+  set_real_ip_from 173.245.48.0/20;
+  set_real_ip_from 103.21.244.0/22;
+  set_real_ip_from 103.22.200.0/22;
+  set_real_ip_from 103.31.4.0/22;
+  set_real_ip_from 141.101.64.0/18;
+  set_real_ip_from 108.162.192.0/18;
+  set_real_ip_from 190.93.240.0/20;
+  set_real_ip_from 188.114.96.0/20;
+  set_real_ip_from 197.234.240.0/22;
+  set_real_ip_from 198.41.128.0/17;
+  set_real_ip_from 162.158.0.0/15;
+  set_real_ip_from 104.16.0.0/13;
+  set_real_ip_from 104.24.0.0/14;
+  set_real_ip_from 172.64.0.0/13;
+  set_real_ip_from 131.0.72.0/22;
+  set_real_ip_from 2400:cb00::/32;
+  set_real_ip_from 2606:4700::/32;
+  set_real_ip_from 2803:f800::/32;
+  set_real_ip_from 2405:b500::/32;
+  set_real_ip_from 2405:8100::/32;
+  set_real_ip_from 2a06:98c0::/29;
+  set_real_ip_from 2c0f:f248::/32;
+  real_ip_header CF-Connecting-IP;
+  real_ip_recursive on;
 
   location / {
     proxy_pass http://127.0.0.1:${PORT};
@@ -263,71 +177,43 @@ server {
     proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_set_header X-Forwarded-Host \$host;
     proxy_set_header X-Forwarded-Port \$server_port;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_read_timeout 60s;
-    proxy_send_timeout 60s;
+    proxy_read_timeout 120s;
+    proxy_send_timeout 120s;
   }
 }
 EOF
-
-  $SUDO ln -sfn "/etc/nginx/sites-available/${APP_NAME}" "/etc/nginx/sites-enabled/${APP_NAME}"
-  $SUDO nginx -t
-  $SUDO systemctl reload nginx
-
-  local email="${CERTBOT_EMAIL:-admin@${DOMAIN}}"
-  if ! $SUDO certbot --nginx --redirect -d "$DOMAIN" --non-interactive --agree-tos -m "$email"; then
-    $SUDO rm -f "/etc/nginx/sites-enabled/${APP_NAME}"
-    $SUDO nginx -t && $SUDO systemctl reload nginx
-    echo "Certbot failed; the ${APP_NAME} Nginx site was disabled to avoid HTTP-only exposure." >&2
-    return 1
+  ln -sfn "/etc/nginx/sites-available/${APP_NAME}" "/etc/nginx/sites-enabled/${APP_NAME}"
+  rm -f /etc/nginx/sites-enabled/default
+  nginx -t
+  systemctl reload nginx
+  if ! certbot --nginx --redirect -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email; then
+    rm -f "/etc/nginx/sites-enabled/${APP_NAME}"
+    nginx -t && systemctl reload nginx
+    echo "HTTPS certificate setup failed. The HTTP site was disabled." >&2
+    exit 1
   fi
+  nginx -t
+  systemctl reload nginx
+  curl -fsS --max-time 10 "https://${DOMAIN}/auth/login" >/dev/null \
+    || { echo "HTTPS health check failed; deployment is not complete." >&2; exit 1; }
 }
 
-install_update_command() {
-  $SUDO ln -sfn "$APP_DIR/scripts/vps-update.sh" /usr/local/bin/mwblog-update
-}
+install_commands() {
+  install -o root -g root -m 0755 "${CURRENT_LINK}/scripts/vps-update.sh" /usr/local/bin/mwblog-update
+  install -o root -g root -m 0755 "${CURRENT_LINK}/scripts/vps-backup.sh" /usr/local/bin/mwblog-backup
+  install -o root -g root -m 0755 "${CURRENT_LINK}/scripts/vps-restore.sh" /usr/local/bin/mwblog-restore
 
-wait_for_app() {
-  log "Checking application health"
-  for _ in $(seq 1 30); do
-    if curl -fsS --max-time 3 "http://127.0.0.1:${PORT}/auth/login" >/dev/null; then
-      return
-    fi
-    sleep 2
-  done
-  echo "Application health check failed." >&2
-  $SUDO journalctl -u "$APP_NAME" -n 60 --no-pager >&2 || true
-  exit 1
-}
-
-install_backup_timer() {
-  log "Installing backup timer"
-  $SUDO tee "/etc/systemd/system/${APP_NAME}-backup.service" >/dev/null <<EOF
+  cat > "/etc/systemd/system/${APP_NAME}-backup.service" <<EOF
 [Unit]
-Description=${APP_NAME} encrypted backup
-After=network-online.target
+Description=Our Nest encrypted backup
 
 [Service]
 Type=oneshot
-User=${APP_USER}
-Group=${APP_USER}
-UMask=0077
-WorkingDirectory=${APP_DIR}
-EnvironmentFile=${APP_DIR}/.env
-Environment=BACKUP_DIR=${BACKUP_DIR}
-ExecStart=/usr/bin/env bash ${APP_DIR}/scripts/vps-backup.sh
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectHome=true
-ProtectSystem=full
-ReadOnlyPaths=${APP_DIR}
-ReadWritePaths=${BACKUP_DIR} /tmp /var/tmp
+ExecStart=/usr/local/bin/mwblog-backup
 EOF
-
-  $SUDO tee "/etc/systemd/system/${APP_NAME}-backup.timer" >/dev/null <<EOF
+  cat > "/etc/systemd/system/${APP_NAME}-backup.timer" <<EOF
 [Unit]
-Description=Daily ${APP_NAME} encrypted backup
+Description=Daily Our Nest encrypted backup
 
 [Timer]
 OnCalendar=*-*-* 03:20:00
@@ -336,30 +222,23 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 EOF
-
-  $SUDO systemctl daemon-reload
-  $SUDO systemctl enable --now "${APP_NAME}-backup.timer"
+  systemctl daemon-reload
+  systemctl enable --now "${APP_NAME}-backup.timer"
 }
 
-DOMAIN="${DOMAIN#http://}"
-DOMAIN="${DOMAIN#https://}"
-DOMAIN="${DOMAIN%%/*}"
-[ -n "$DOMAIN" ] || { echo "A domain name is required." >&2; exit 1; }
-[[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || { echo "Invalid domain name: $DOMAIN" >&2; exit 1; }
-install_system_packages
-checkout_code
-ensure_app_user
-write_env_file
-build_app
-install_systemd_service
-install_nginx_site
-install_backup_timer
-install_update_command
-wait_for_app
+install_packages
+prepare_directories
+build_release
+install_service
+install_nginx
+install_commands
+systemctl is-active --quiet "$APP_NAME"
+find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | tail -n +6 | cut -d' ' -f2- | xargs -r rm -rf
+trap - ERR
 
-echo "Deployment complete."
-echo "Service: systemctl status ${APP_NAME}"
-echo "Backup timer: systemctl status ${APP_NAME}-backup.timer"
-echo "Important: save BACKUP_ENCRYPTION_KEY from ${APP_DIR}/.env outside the VPS."
-echo "URL: https://${DOMAIN}"
-echo "Next update: sudo mwblog-update"
+echo
+echo "Deployment complete: https://${DOMAIN}"
+echo "Accounts: kikou / scoinmic"
+echo "Update later: sudo mwblog-update"
+echo "Back up now: sudo mwblog-backup"
+echo "Restore: sudo mwblog-restore /var/backups/${APP_NAME}/backup-file.tar.gz.enc"

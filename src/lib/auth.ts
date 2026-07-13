@@ -1,9 +1,9 @@
 import type { AstroCookies } from "astro";
-import type { Session } from "@supabase/supabase-js";
-import { createAnonClient } from "./supabase";
+import { randomBytes } from "node:crypto";
+import { createSession, deleteSession, readSessionProfile } from "./local-store";
 
-const ACCESS_COOKIE = "cb-access-token";
-const REFRESH_COOKIE = "cb-refresh-token";
+const SESSION_COOKIE = "cb-session";
+const SESSION_SECONDS = 60 * 60 * 24 * 30;
 
 const cookieBase = {
   httpOnly: true,
@@ -12,59 +12,51 @@ const cookieBase = {
   secure: import.meta.env.PROD,
 };
 
-export function setSessionCookies(cookies: AstroCookies, session: Session) {
-  cookies.set(ACCESS_COOKIE, session.access_token, {
+export interface LocalUser {
+  id: string;
+  account: string;
+}
+
+export interface LocalSession {
+  token: string;
+  expiresAt: string;
+}
+
+export function startSession(cookies: AstroCookies, userId: string) {
+  const token = randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + SESSION_SECONDS * 1000).toISOString();
+  createSession(userId, token, expiresAt);
+  cookies.set(SESSION_COOKIE, token, {
     ...cookieBase,
-    maxAge: session.expires_in || 3600,
-  });
-  cookies.set(REFRESH_COOKIE, session.refresh_token, {
-    ...cookieBase,
-    maxAge: 60 * 60 * 24 * 30,
+    maxAge: SESSION_SECONDS,
   });
 }
 
 export function clearSessionCookies(cookies: AstroCookies) {
-  cookies.delete(ACCESS_COOKIE, cookieBase);
-  cookies.delete(REFRESH_COOKIE, cookieBase);
+  cookies.delete(SESSION_COOKIE, cookieBase);
 }
 
 export function getAccessToken(cookies: AstroCookies) {
-  return cookies.get(ACCESS_COOKIE)?.value || "";
+  return cookies.get(SESSION_COOKIE)?.value || "";
 }
 
 export async function readSession(cookies: AstroCookies) {
-  const accessToken = cookies.get(ACCESS_COOKIE)?.value;
-  const refreshToken = cookies.get(REFRESH_COOKIE)?.value;
-  const supabase = createAnonClient();
-
-  if (accessToken) {
-    const { data, error } = await supabase.auth.getUser(accessToken);
-    if (!error && data.user) {
-      return {
-        user: data.user,
-        session: null,
-        accessToken,
-      };
-    }
-  }
-
-  if (!refreshToken) {
-    return { user: null, session: null, accessToken: "" };
-  }
-
-  const { data, error } = await supabase.auth.refreshSession({
-    refresh_token: refreshToken,
-  });
-
-  if (error || !data.session || !data.user) {
+  const token = getAccessToken(cookies);
+  if (!token) return { user: null, session: null, accessToken: "" };
+  const profile = readSessionProfile(token);
+  if (!profile) {
     clearSessionCookies(cookies);
     return { user: null, session: null, accessToken: "" };
   }
-
-  setSessionCookies(cookies, data.session);
   return {
-    user: data.user,
-    session: data.session,
-    accessToken: data.session.access_token,
+    user: { id: profile.id, account: profile.account } satisfies LocalUser,
+    session: { token, expiresAt: "" } satisfies LocalSession,
+    accessToken: token,
   };
+}
+
+export function endSession(cookies: AstroCookies) {
+  const token = getAccessToken(cookies);
+  if (token) deleteSession(token);
+  clearSessionCookies(cookies);
 }

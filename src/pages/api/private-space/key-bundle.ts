@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
 import { PRIVATE_SPACE_ID } from "../../../lib/private-space";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -71,8 +71,8 @@ function normalizeBundle(value: unknown) {
 export const GET: APIRoute = async ({ locals }) => {
   if (!locals.user) return json({ error: "Please log in." }, 401);
 
-  const supabase = createLocalsClient(locals);
-  const { data, error } = await supabase
+  const store = createLocalsClient(locals);
+  const { data, error } = await store
     .from("private_space_keys")
     .select("bundle")
     .eq("space_id", PRIVATE_SPACE_ID)
@@ -96,8 +96,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return json({ error: "Invalid private-space key bundle." }, 400);
   }
 
-  const supabase = createLocalsClient(locals);
-  const { data: existing, error: existingError } = await supabase
+  const store = createLocalsClient(locals);
+  const { data: existing, error: existingError } = await store
     .from("private_space_keys")
     .select("space_id")
     .eq("space_id", PRIVATE_SPACE_ID)
@@ -114,7 +114,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     updated_at: new Date().toISOString(),
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await store
     .from("private_space_keys")
     .insert(row)
     .select("bundle")

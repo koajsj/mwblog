@@ -1,7 +1,7 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
 import TodoApp from "../components/TodoApp";
-import { createLocalsClient } from "../lib/supabase";
+import { createLocalsClient } from "../lib/local-store";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
 import type { AuthorKey } from "../lib/types";
 
@@ -9,8 +9,8 @@ const selectedView = (Astro.url.searchParams.get("view") === "brown" ? "brown" :
 const user = Astro.locals.user;
 const profile = Astro.locals.profile;
 const currentAuthor = profile?.author_key as AuthorKey | undefined;
-const supabase = createLocalsClient(Astro.locals);
-const { data: authorRows } = await supabase.from("profiles").select("author_key,display_name");
+const store = createLocalsClient(Astro.locals);
+const { data: authorRows } = await store.from("profiles").select("author_key,display_name");
 const authorNames = makeAuthorNames(authorRows || []);
 const currentAuthorName = authorDisplayName(profile, currentAuthor || "white", authorNames);
 ---

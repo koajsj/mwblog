@@ -2,28 +2,28 @@
 set -Eeuo pipefail
 
 APP_NAME="${APP_NAME:-mwblog}"
-APP_DIR="${APP_DIR:-/opt/${APP_NAME}}"
+CURRENT_LINK="${APP_ROOT:-/opt/${APP_NAME}}/current"
+ENV_FILE="${ENV_FILE:-/etc/${APP_NAME}.env}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/${APP_NAME}}"
-RETENTION_DAYS="${RETENTION_DAYS:-14}"
+APP_USER="${APP_USER:-${APP_NAME}}"
+RETENTION_DAYS="${RETENTION_DAYS:-30}"
 
-ensure_backup_key() {
-  if [ ! -f "$APP_DIR/.env" ]; then
-    echo "Missing $APP_DIR/.env" >&2
-    exit 1
-  fi
+[ "$(id -u)" -eq 0 ] || { echo "Run with sudo: sudo mwblog-backup" >&2; exit 1; }
+[ -f "$ENV_FILE" ] && [ -L "$CURRENT_LINK" ] || { echo "The site has not been deployed yet." >&2; exit 1; }
+install -d -o "$APP_USER" -g "$APP_USER" -m 0700 "$BACKUP_DIR"
 
-  if ! grep -Eq "^BACKUP_ENCRYPTION_KEY=.+" "$APP_DIR/.env"; then
-    echo "Missing BACKUP_ENCRYPTION_KEY in $APP_DIR/.env" >&2
-    exit 1
-  fi
+was_active=0
+if systemctl is-active --quiet "$APP_NAME"; then
+  was_active=1
+  systemctl stop "$APP_NAME"
+fi
+restart_service() {
+  if [ "$was_active" = "1" ]; then systemctl start "$APP_NAME" || true; fi
 }
-
-ensure_backup_key
-mkdir -p "$BACKUP_DIR"
-chmod 700 "$BACKUP_DIR"
-
-cd "$APP_DIR"
-BACKUP_DIR="$BACKUP_DIR" npm run backup
-
-find "$BACKUP_DIR" -type f -name "*.tar.gz.enc" -mtime "+${RETENTION_DAYS}" -delete
-echo "Backup complete. Directory: $BACKUP_DIR"
+trap restart_service EXIT
+runuser -u "$APP_USER" -- env BACKUP_DIR="$BACKUP_DIR" bash -c \
+  "cd '$CURRENT_LINK' && set -a && source '$ENV_FILE' && set +a && npm run backup"
+find "$BACKUP_DIR" -type f -name '*.tar.gz.enc' -mtime "+${RETENTION_DAYS}" -delete
+restart_service
+trap - EXIT
+echo "Backup complete: $BACKUP_DIR"

@@ -1,27 +1,27 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
-import { createLocalsClient } from "../lib/supabase";
+import { createLocalsClient } from "../lib/local-store";
 import { shanghaiDateKey } from "../lib/datetime";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
 import { serializeJsonForScript } from "../lib/security";
 import { MOOD_LABELS, asRows } from "../lib/types";
 import type { AuthorKey, LifeRecord, Photo } from "../lib/types";
 
-const supabase = createLocalsClient(Astro.locals);
+const store = createLocalsClient(Astro.locals);
 const user = Astro.locals.user;
 const profile = Astro.locals.profile;
 const myAuthorKey = (profile?.author_key || "white") as AuthorKey;
 
 const [{ data: photosData }, { data: recordsData }, { data: authorRows }] = await Promise.all([
-  supabase
+  store
     .from("photos")
     .select("id,owner_id,title,caption,taken_on,storage_path,mime_type,created_at,profiles(display_name,author_key)")
     .order("taken_on", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false }),
-  supabase
+  store
     .from("life_records")
     .select("id,owner_id,record_on,mood,body,profiles(display_name,author_key)"),
-  supabase.from("profiles").select("author_key,display_name"),
+  store.from("profiles").select("author_key,display_name"),
 ]);
 
 const photos = asRows<Photo>(photosData);
@@ -153,7 +153,7 @@ const deleted = Astro.url.searchParams.get("deleted");
   {user && (
     <div class="pw-modal is-hidden" id="pwModal" role="dialog" aria-modal="true" aria-label="Upload photo">
       <div class="pw-modal__mask" id="pwModalMask"></div>
-      <form class="pw-modal__card" id="pwUploadForm" action="/api/photos/upload" method="post" enctype="multipart/form-data">
+      <form class="pw-modal__card" id="pwUploadForm" action="/api/photos/upload" method="post" enctype="multipart/form-data" novalidate>
         <input type="hidden" name="return_to" value="/photos" />
         <h2 class="pw-modal__title">Upload photo</h2>
         <div class="pw-field">

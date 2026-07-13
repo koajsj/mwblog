@@ -23,6 +23,10 @@ function isSafeUrl(input: string) {
   return /^(https?:|mailto:|\/(?!\/)|#|\.\/|\.\.\/)/i.test(input);
 }
 
+function isSafeImageUrl(input: string) {
+  return /^(\/(?!\/)|#|\.\/|\.\.\/)/.test(input);
+}
+
 function inlineMarkdown(input: string) {
   const codeSpans: string[] = [];
   const withCodeTokens = input.replace(/`([^`]+)`/g, (_match, code) => {
@@ -34,7 +38,7 @@ function inlineMarkdown(input: string) {
   let html = escapeHtml(withCodeTokens);
   html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g, (_match, alt, rawSrc, title) => {
     const src = String(rawSrc || "").trim();
-    if (!isSafeUrl(src)) return escapeHtml(alt || "");
+    if (!isSafeImageUrl(src)) return escapeHtml(alt || "");
     const titleAttr = title ? ` title="${escapeAttr(title)}"` : "";
     return `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt || "")}"${titleAttr} loading="lazy" />`;
   });

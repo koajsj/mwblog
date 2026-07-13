@@ -3,7 +3,7 @@ import { isOwnedStoragePath, storageSafeName } from "../../../lib/files";
 import { ensureStorageBuckets } from "../../../lib/storage";
 import { safeLocalRedirect } from "../../../lib/redirect";
 import { readEncryptedText } from "../../../lib/private-payload";
-import { createLocalsClient, createServiceClient } from "../../../lib/supabase";
+import { createLocalsClient, createServiceClient } from "../../../lib/local-store";
 
 function mergeTags(...groups: string[][]) {
   const seen = new Set<string>();
@@ -49,11 +49,11 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   // an opaque identifier so titles and filenames are not exposed in URLs.
   const requestedSlug = /^[a-z0-9][a-z0-9-]{0,119}$/i.test(manualSlug) ? manualSlug : "";
   const slug = requestedSlug || crypto.randomUUID();
-  const supabase = createLocalsClient(locals);
+  const store = createLocalsClient(locals);
   const storage = createServiceClient().storage.from("blog-markdown");
   const storageName = storageSafeName(slug, "post");
   const storagePath = `${user.id}/${storageName}-${Date.now()}-${crypto.randomUUID()}.md`;
-  const { data: existingPost } = await supabase
+  const { data: existingPost } = await store
     .from("blog_posts")
     .select("id,storage_path")
     .eq("slug", slug)
@@ -75,7 +75,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not upload the encrypted diary file.")}`, 303);
   }
 
-  const { error: upsertError } = await supabase.from("blog_posts").upsert(
+  const { error: upsertError } = await store.from("blog_posts").upsert(
     {
       slug,
       title,

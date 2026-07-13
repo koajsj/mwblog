@@ -59,8 +59,11 @@ function remember(ip: string, payload: CachedWeather["payload"]) {
 
 export const GET: APIRoute = async ({ request, locals }) => {
   if (!locals.user) return json({ ok: false, error: "unauthorized" }, 401);
+  if (String(process.env.ENABLE_IP_WEATHER || import.meta.env.ENABLE_IP_WEATHER || "") !== "1") {
+    return json({ ok: false, error: "IP weather is disabled for privacy." }, 503);
+  }
 
-  const ip = request.headers.get("cf-connecting-ip")?.trim() || clientIpFromRequest(request);
+  const ip = clientIpFromRequest(request);
   if (!ip || ip === "unknown") return json({ ok: false, error: "location unavailable" }, 503);
 
   const cached = cache.get(ip);

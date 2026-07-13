@@ -1,13 +1,13 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
-import { createLocalsClient } from "../lib/supabase";
+import { createLocalsClient } from "../lib/local-store";
 import { authorDisplayName } from "../lib/author-display";
 import { asRows, type AuthorKey, type Place, type PlaceTone } from "../lib/types";
 
-const supabase = createLocalsClient(Astro.locals);
+const store = createLocalsClient(Astro.locals);
 const user = Astro.locals.user;
 
-const { data } = await supabase
+const { data } = await store
   .from("places")
   .select("id,owner_id,name,note,tone,created_at,updated_at,profiles(display_name,author_key)")
   .order("created_at", { ascending: false });

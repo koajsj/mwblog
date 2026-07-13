@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
 import { safeLocalRedirect } from "../../../lib/redirect";
 import { isUuid } from "../../../lib/security";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const user = locals.user;
@@ -17,8 +17,8 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Missing place ID.")}`, 303);
   }
 
-  const supabase = createLocalsClient(locals);
-  const { error } = await supabase
+  const store = createLocalsClient(locals);
+  const { error } = await store
     .from("places")
     .delete()
     .eq("id", id)

@@ -1,6 +1,6 @@
 ---
 import PrototypeLayout from "../layouts/PrototypeLayout.astro";
-import { createLocalsClient } from "../lib/supabase";
+import { createLocalsClient } from "../lib/local-store";
 import { authorDisplayName, makeAuthorNames } from "../lib/author-display";
 import { formatCommentTime } from "../lib/comments-display";
 import { shanghaiDateKey, shanghaiParts } from "../lib/datetime";
@@ -8,24 +8,24 @@ import { serializeJsonForScript } from "../lib/security";
 import { MOOD_LABELS, asRows } from "../lib/types";
 import type { AuthorKey, Comment, LifeRecord, Photo } from "../lib/types";
 
-const supabase = createLocalsClient(Astro.locals);
+const store = createLocalsClient(Astro.locals);
 const user = Astro.locals.user;
 const profile = Astro.locals.profile;
 const canCreate = !!user;
 
 const [{ data: recordsData }, { data: photosData }, { data: authorRows }] = await Promise.all([
-  supabase
+  store
     .from("life_records")
     .select("id,owner_id,record_on,mood,body,created_at,profiles(display_name,author_key)")
     .order("record_on", { ascending: false })
     .order("created_at", { ascending: false }),
-  supabase
+  store
     .from("photos")
     .select("id,owner_id,title,caption,taken_on,storage_path,created_at,profiles(display_name,author_key)")
     .not("taken_on", "is", null)
     .order("taken_on", { ascending: false })
     .order("created_at", { ascending: false }),
-  supabase.from("profiles").select("author_key,display_name"),
+  store.from("profiles").select("author_key,display_name"),
 ]);
 
 const records = asRows<LifeRecord>(recordsData);
@@ -34,7 +34,7 @@ const authorNames = makeAuthorNames(authorRows || []);
 // 一次性拉所有记录的评论，按 record_id 分组
 const recordIds = records.map((r) => r.id);
 const { data: commentRows } = recordIds.length
-  ? await supabase
+  ? await store
       .from("comments")
       .select("id,target_type,target_id,author_id,body,created_at,profiles(display_name,author_key)")
       .eq("target_type", "record")
@@ -117,7 +117,7 @@ const deleted = Astro.url.searchParams.get("deleted");
     </header>
 
     {canCreate && (
-      <form class="rec-form is-hidden" id="recForm" action="/api/records/create" method="post" enctype="multipart/form-data">
+      <form class="rec-form is-hidden" id="recForm" action="/api/records/create" method="post" enctype="multipart/form-data" novalidate>
         <input type="hidden" name="return_to" value="/records" />
         <div class="rec-form__row">
           <label class="rec-field">

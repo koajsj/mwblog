@@ -297,7 +297,7 @@
       var target = fieldTarget(who, field);
       var name = statusName(who);
       editorReturnFocus = document.activeElement;
-      activeEdit = { who: who, field: field };
+      activeEdit = { who: who, field: field, target: target };
       modal.classList.remove("is-hidden", "status-editor--white", "status-editor--brown");
       document.documentElement.classList.add("has-open-dialog");
       modal.classList.add(who === "brown" ? "status-editor--brown" : "status-editor--white");
@@ -327,15 +327,15 @@
 
     function saveEditor(value) {
       if (!activeEdit) return;
-      var edit = { who: activeEdit.who, field: activeEdit.field };
+      var edit = { who: activeEdit.who, field: activeEdit.field, target: activeEdit.target };
       var trimmed = String(value || "").trim();
       if (currentWeatherWho() !== edit.who) return;
       if (saveBtn) saveBtn.disabled = true;
       if (clearBtn) clearBtn.disabled = true;
       setSync("Saving…", "idle");
       postFieldToServer(edit.field, trimmed).then(function () {
-        if (activeEdit && activeEdit.target) {
-          activeEdit.target.setAttribute("data-server-text", trimmed);
+        if (edit.target) {
+          edit.target.setAttribute("data-server-text", trimmed);
         }
         renderStatus();
         setSync(trimmed ? "Saved" : "Default restored", "saved");

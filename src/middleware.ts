@@ -1,7 +1,7 @@
 import { defineMiddleware } from "astro:middleware";
-import { isAllowedPrivateProfile, resolveFixedAccountByEmail } from "./lib/accounts";
+import { isAllowedPrivateProfile, resolveFixedAccountByName } from "./lib/accounts";
 import { clearSessionCookies, getAccessToken, readSession } from "./lib/auth";
-import { createUserClient } from "./lib/supabase";
+import { profileById } from "./lib/local-store";
 import { trustedAppOrigin, withScriptNonce, withSecurityHeaders } from "./lib/security";
 import type { Profile } from "./lib/types";
 
@@ -15,10 +15,10 @@ const protectedApiPrefixes = [
   "/api/status",
   "/api/todos",
   "/api/private-space",
+  "/api/export",
 ];
 const privatePagePrefixes = ["/blog", "/records", "/photos", "/places", "/activity", "/todo"];
 const authPages = ["/auth/login"];
-const REQUIRED_SECURITY_VERSION = 23;
 
 function isPrivatePagePath(pathname: string) {
   return pathname === "/" || privatePagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
@@ -48,7 +48,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const pathname = url.pathname.replace(/\/$/, "") || "/";
   const needsAuth =
     isPrivatePagePath(pathname) || protectedApiPrefixes.some((prefix) => pathname.startsWith(prefix));
-  const hasSessionCookie = Boolean(cookies.get("cb-access-token") || cookies.get("cb-refresh-token"));
+  const hasSessionCookie = Boolean(cookies.get("cb-session"));
   let sessionState;
   try {
     sessionState = await readSession(cookies);
@@ -71,48 +71,19 @@ export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.profile = null;
   context.locals.accessToken = accessToken;
 
-  const allowedAccount = resolveFixedAccountByEmail(sessionState.user?.email);
+  const allowedAccount = resolveFixedAccountByName(sessionState.user?.account);
   const shouldValidatePrivateContext = needsAuth || authPages.includes(pathname);
-  let profileLoadFailed = false;
-  let securityBaselineFailed = false;
-
   if (sessionState.user && allowedAccount && shouldValidatePrivateContext) {
-    const userClient = createUserClient(accessToken);
     try {
-      const [{ data, error }, { data: securityVersion, error: securityError }] = await Promise.all([
-        userClient
-          .from("profiles")
-          .select("id,email,author_key,display_name,created_at")
-          .eq("id", sessionState.user.id)
-          .maybeSingle(),
-        userClient.rpc("private_security_version"),
-      ]);
-
-      profileLoadFailed = Boolean(error);
-      securityBaselineFailed = Boolean(securityError) || Number(securityVersion) < REQUIRED_SECURITY_VERSION;
-      context.locals.profile = error ? null : (data || null) as Profile | null;
+      context.locals.profile = profileById(sessionState.user.id) as Profile | null;
     } catch {
-      profileLoadFailed = true;
-      securityBaselineFailed = true;
+      context.locals.profile = null;
     }
-  }
-
-  if (sessionState.user && allowedAccount && shouldValidatePrivateContext && (profileLoadFailed || securityBaselineFailed)) {
-    const response = pathname.startsWith("/api/")
-      ? new Response(JSON.stringify({ error: "Private-space security baseline is unavailable." }), {
-          status: 503,
-          headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
-        })
-      : new Response("Private-space security baseline is unavailable. Apply the latest database migrations before continuing.", {
-          status: 503,
-          headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
-        });
-    return withSecurityHeaders(response, url);
   }
 
   const hasAuthorizedSession = !sessionState.user
     || !shouldValidatePrivateContext
-    || isAllowedPrivateProfile(context.locals.profile, sessionState.user.email);
+    || isAllowedPrivateProfile(context.locals.profile, sessionState.user.account);
 
   if (needsAuth && !sessionState.user) {
     if (pathname.startsWith("/api/")) {

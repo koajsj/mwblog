@@ -5,7 +5,7 @@ import type { AuthorKey } from "../lib/types";
 interface Props {
   title: string;
   description?: string;
-  current?: "home" | "places" | "blog" | "records" | "photos" | "activity" | "todo";
+  current?: "home" | "places" | "blog" | "records" | "photos" | "activity" | "todo" | "export";
   bgClass?: string;
   bodyClass?: string;
   htmlClass?: string;
@@ -81,6 +81,7 @@ const authorKey = (profile?.author_key || "white") as AuthorKey;
             <a class:list={{ "is-active": current === "photos" }} href="/photos" aria-current={current === "photos" ? "page" : undefined}>Photos</a>
             <a class:list={{ "is-active": current === "activity" }} href="/activity" aria-current={current === "activity" ? "page" : undefined}>Activity</a>
             <a class:list={{ "is-active": current === "todo" }} href="/todo" aria-current={current === "todo" ? "page" : undefined}>To Do</a>
+            <a class:list={{ "is-active": current === "export" }} href="/export" aria-current={current === "export" ? "page" : undefined}>Export</a>
             {!user && (
               <a class="site-nav__auth-link" href="/auth/login">Log in</a>
             )}

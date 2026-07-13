@@ -1,9 +1,23 @@
 import type { APIRoute } from "astro";
-import { isAllowedPrivateProfile, resolveFixedAccount, resolveFixedAccountByEmail } from "../../../lib/accounts";
-import { setSessionCookies } from "../../../lib/auth";
+import { scryptSync, timingSafeEqual } from "node:crypto";
+import { resolveFixedAccount } from "../../../lib/accounts";
+import { startSession } from "../../../lib/auth";
 import { safeLocalRedirect } from "../../../lib/redirect";
 import { checkLoginRateLimit, clearLoginFailures, recordLoginFailure } from "../../../lib/security";
-import { createAnonClient, createUserClient } from "../../../lib/supabase";
+
+function passwordMatches(input: string) {
+  const encoded = String(process.env.LOGIN_PASSWORD_HASH || import.meta.env.LOGIN_PASSWORD_HASH || "");
+  const [algorithm, saltText, expectedText] = encoded.split("$");
+  if (algorithm !== "scrypt" || !saltText || !expectedText) return false;
+  try {
+    const salt = Buffer.from(saltText, "base64url");
+    const expected = Buffer.from(expectedText, "base64url");
+    const actual = scryptSync(input, salt, expected.length, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+    return expected.length === 32 && timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+}
 
 function backToLogin(message: string, redirectTo = "/?skipCover=1#home") {
   const params = new URLSearchParams({ error: message, redirect: redirectTo });
@@ -12,7 +26,7 @@ function backToLogin(message: string, redirectTo = "/?skipCover=1#home") {
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const form = await request.formData();
-  const accountName = String(form.get("account") || form.get("email") || "").trim().toLowerCase();
+  const accountName = String(form.get("account") || "").trim().toLowerCase();
   const password = String(form.get("password") || "");
   const redirectTo = safeLocalRedirect(String(form.get("redirect") || ""), "/?skipCover=1#home");
   const account = resolveFixedAccount(accountName);
@@ -27,49 +41,12 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
     return redirect(backToLogin(`Too many login attempts. Try again in ${retryMinutes} minute${retryMinutes > 1 ? "s" : ""}.`, redirectTo), 303);
   }
 
-  const supabase = createAnonClient();
-  let authResult;
-  try {
-    authResult = await supabase.auth.signInWithPassword({ email: account.email, password });
-  } catch {
-    return redirect(backToLogin("Login service is temporarily unavailable. Please try again shortly.", redirectTo), 303);
-  }
-  const { data, error } = authResult;
-
-  if (error || !data.session) {
+  if (!passwordMatches(password)) {
     recordLoginFailure(request, accountName);
     return redirect(backToLogin("Login failed. Please check your account and password.", redirectTo), 303);
   }
 
-  const user = data.user;
-  const allowedAccount = resolveFixedAccountByEmail(user?.email);
-  if (!user || !allowedAccount) {
-    recordLoginFailure(request, accountName);
-    return redirect(backToLogin("This account is not allowed.", redirectTo), 303);
-  }
-
-  const userClient = createUserClient(data.session.access_token);
-  let profile = null;
-  try {
-    const result = await userClient
-      .from("profiles")
-      .select("email,author_key")
-      .eq("id", user.id)
-      .maybeSingle();
-    if (result.error) {
-      return redirect(backToLogin("Login service is temporarily unavailable. Please try again shortly.", redirectTo), 303);
-    }
-    profile = result.data;
-  } catch {
-    return redirect(backToLogin("Login service is temporarily unavailable. Please try again shortly.", redirectTo), 303);
-  }
-
-  if (!isAllowedPrivateProfile(profile, user.email)) {
-    recordLoginFailure(request, accountName);
-    return redirect(backToLogin("This account is not allowed.", redirectTo), 303);
-  }
-
   clearLoginFailures(request, accountName);
-  setSessionCookies(cookies, data.session);
+  startSession(cookies, account.id);
   return redirect(redirectTo, 303);
 };

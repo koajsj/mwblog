@@ -96,18 +96,7 @@ export function clearLoginFailures(request: Request, accountName: string) {
 }
 
 function cspConnectSrc() {
-  const allow = new Set(["'self'"]);
-  const rawUrl = process.env.SUPABASE_URL || import.meta.env.SUPABASE_URL;
-  if (!rawUrl) return Array.from(allow).join(" ");
-
-  try {
-    const origin = new URL(rawUrl).origin;
-    allow.add(origin);
-  } catch {
-    // Ignore malformed env values and keep the default policy.
-  }
-
-  return Array.from(allow).join(" ");
+  return "'self'";
 }
 
 export function trustedAppOrigin(url: URL) {
@@ -143,10 +132,10 @@ export function withSecurityHeaders(response: Response, url: URL, scriptNonce = 
     "form-action 'self'",
     "object-src 'none'",
     `connect-src ${cspConnectSrc()}`,
-    "img-src 'self' data: blob: https:",
-    "font-src 'self' data: https://fonts.gstatic.com",
-    `style-src 'self' https://fonts.googleapis.com${scriptNonce ? ` 'nonce-${scriptNonce}'` : ""}`,
-    `style-src-elem 'self' https://fonts.googleapis.com${scriptNonce ? ` 'nonce-${scriptNonce}'` : ""}`,
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    `style-src 'self'${scriptNonce ? ` 'nonce-${scriptNonce}'` : ""}`,
+    `style-src-elem 'self'${scriptNonce ? ` 'nonce-${scriptNonce}'` : ""}`,
     "style-src-attr 'unsafe-inline'",
     `script-src 'self'${scriptNonce ? ` 'nonce-${scriptNonce}'` : ""}`,
     "media-src 'self' blob:",

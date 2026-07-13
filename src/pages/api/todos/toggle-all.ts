@@ -1,13 +1,13 @@
 import type { APIRoute } from "astro";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 import { deleteLinkedTodoActivities, json } from "../../../lib/todo-utils";
 
 export const POST: APIRoute = async ({ locals }) => {
   const user = locals.user;
   if (!user) return json({ error: "Please log in first." }, 401);
 
-  const supabase = createLocalsClient(locals);
-  const { data: activeTodos, error: readError } = await supabase
+  const store = createLocalsClient(locals);
+  const { data: activeTodos, error: readError } = await store
     .from("todos")
     .select("id")
     .eq("owner_id", user.id)
@@ -19,7 +19,7 @@ export const POST: APIRoute = async ({ locals }) => {
     return json({ needsCompletion: true, ids: activeTodos.map((todo) => todo.id) });
   }
 
-  const { data: completedTodos, error: completedReadError } = await supabase
+  const { data: completedTodos, error: completedReadError } = await store
     .from("todos")
     .select("id,activity_entry_id")
     .eq("owner_id", user.id)
@@ -31,10 +31,10 @@ export const POST: APIRoute = async ({ locals }) => {
   const todoIds = (completedTodos || []).map((todo) => todo.id).filter(Boolean);
   if (!todoIds.length) return json({ ok: true });
   const activityIds = (completedTodos || []).map((todo) => todo.activity_entry_id).filter(Boolean) as string[];
-  const activityError = await deleteLinkedTodoActivities(supabase, user.id, todoIds, activityIds);
+  const activityError = await deleteLinkedTodoActivities(store, user.id, todoIds, activityIds);
   if (activityError) return json({ error: "Could not reset the linked activity records." }, 500);
 
-  const { error } = await supabase
+  const { error } = await store
     .from("todos")
     .update({
       completed: false,

@@ -3,7 +3,7 @@ import { isIsoCalendarDate } from "../../../lib/datetime";
 import { ACTIVITY_CATEGORIES } from "../../../lib/types";
 import { safeLocalRedirect } from "../../../lib/redirect";
 import { readEncryptedText } from "../../../lib/private-payload";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 
 const fallbackCategory = ACTIVITY_CATEGORIES[ACTIVITY_CATEGORIES.length - 1];
 
@@ -78,8 +78,8 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(withError(failTo, "End time must be after start time. Overnight tasks are supported."), 303);
   }
 
-  const supabase = createLocalsClient(locals);
-  const { error } = await supabase.from("activity_entries").insert({
+  const store = createLocalsClient(locals);
+  const { error } = await store.from("activity_entries").insert({
     owner_id: user.id,
     activity_on: activityOn,
     period: periodForTime(startTime),

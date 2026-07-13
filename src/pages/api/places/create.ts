@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
 import { safeLocalRedirect } from "../../../lib/redirect";
 import { readEncryptedText } from "../../../lib/private-payload";
-import { createLocalsClient } from "../../../lib/supabase";
+import { createLocalsClient } from "../../../lib/local-store";
 
 const validTones = new Set(["night", "desert", "forest", "sea"]);
 
@@ -35,8 +35,8 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Please choose a valid vibe.")}`, 303);
   }
 
-  const supabase = createLocalsClient(locals);
-  const { error } = await supabase.from("places").insert({
+  const store = createLocalsClient(locals);
+  const { error } = await store.from("places").insert({
     owner_id: user.id,
     name,
     note,

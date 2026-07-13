@@ -1,17 +1,17 @@
 ---
 import PrototypeLayout from "../../layouts/PrototypeLayout.astro";
-import { createLocalsClient } from "../../lib/supabase";
+import { createLocalsClient } from "../../lib/local-store";
 import { authorDisplayName, makeAuthorNames } from "../../lib/author-display";
 import { shanghaiParts } from "../../lib/datetime";
 import { asRows, type AuthorKey, type BlogPost } from "../../lib/types";
 
-const supabase = createLocalsClient(Astro.locals);
+const store = createLocalsClient(Astro.locals);
 const [{ data }, { data: authorRows }] = await Promise.all([
-  supabase
+  store
     .from("blog_posts")
     .select("id,slug,title,excerpt,content_markdown,tags,published_at,created_at,profiles(display_name,author_key)")
     .order("published_at", { ascending: false }),
-  supabase.from("profiles").select("author_key,display_name"),
+  store.from("profiles").select("author_key,display_name"),
 ]);
 
 const posts = asRows<BlogPost>(data);
@@ -72,7 +72,7 @@ const currentYear = posts.length ? postYear(posts[0]) : new Date().getFullYear()
       {deleted === "post" && <p class="site-notice site-notice--block" role="status">The diary entry has been removed.</p>}
 
       {user && (
-        <form class="bi-upload is-hidden" id="blogUploadPanel" action="/api/blog/upload" method="post" enctype="multipart/form-data">
+        <form class="bi-upload is-hidden" id="blogUploadPanel" action="/api/blog/upload" method="post" enctype="multipart/form-data" novalidate>
           <input type="hidden" name="return_to" value="/blog" />
           <label class="bi-upload__file" id="blogUploadDrop">
             <input id="blogUploadInput" name="markdown" type="file" accept=".md,.markdown,text/markdown,text/plain" required />
