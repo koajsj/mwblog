@@ -455,6 +455,7 @@
       credentials: "same-origin",
     }).then(function (response) {
       if (!response.ok) throw new Error("Could not log out.");
+      clearPrivateState();
       window.location.href = "/auth/login";
       return true;
     }).catch(function () {

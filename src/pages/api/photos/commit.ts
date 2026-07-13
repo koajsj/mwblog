@@ -3,7 +3,7 @@ import { isIsoCalendarDate } from "../../../lib/datetime";
 import { createLocalsClient } from "../../../lib/local-store";
 import { isAllowedImageType, isOwnedStoragePath } from "../../../lib/files";
 import { readNullableEncryptedText } from "../../../lib/private-payload";
-import { removeStoragePaths, storageObjectExists } from "../../../lib/storage";
+import { storageObjectExists } from "../../../lib/storage";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -45,6 +45,15 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return json({ error: "Uploaded photo was not found. Please choose it again." }, 400);
   }
 
+  const { data: existingPhoto, error: existingPhotoError } = await store
+    .from("photos")
+    .select("id")
+    .eq("owner_id", user.id)
+    .eq("storage_path", path)
+    .maybeSingle();
+  if (existingPhotoError) return json({ error: "Could not verify the uploaded photo." }, 500);
+  if (existingPhoto) return json({ ok: true });
+
   const { error: insertError } = await store.from("photos").insert({
     owner_id: user.id,
     title,
@@ -55,7 +64,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
   });
 
   if (insertError) {
-    await removeStoragePaths(store, "photos", [path]);
     return json({ error: "Could not save the photo." }, 500);
   }
 

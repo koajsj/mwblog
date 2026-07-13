@@ -23,12 +23,16 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!todo) return json({ error: "Task not found." }, 404);
 
   if (todo.completed) {
-    const { error } = await store
+    const { data, error } = await store
       .from("todos")
       .update({ archived_at: new Date().toISOString() })
       .eq("id", id)
-      .eq("owner_id", user.id);
+      .eq("owner_id", user.id)
+      .eq("completed", true)
+      .select("id")
+      .maybeSingle();
     if (error) return json({ error: "Could not archive the task." }, 500);
+    if (!data) return json({ error: "Task status changed. Please refresh and try again." }, 409);
     return json({ ok: true, archived: true });
   }
 

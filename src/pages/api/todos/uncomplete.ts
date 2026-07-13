@@ -43,6 +43,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     })
     .eq("id", id)
     .eq("owner_id", user.id)
+    .eq("completed", true)
     .select("id")
     .maybeSingle();
 

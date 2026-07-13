@@ -23,7 +23,8 @@ export const POST: APIRoute = async ({ locals }) => {
     .from("todos")
     .update({ archived_at: new Date().toISOString() })
     .in("id", todoIds)
-    .eq("owner_id", user.id);
+    .eq("owner_id", user.id)
+    .eq("completed", true);
   if (error) return json({ error: "Could not archive the completed tasks." }, 500);
   return json({ ok: true });
 };

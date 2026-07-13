@@ -47,16 +47,23 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const store = createLocalsClient(locals);
   const validPhotos: Array<{ path: string; mimeType: string }> = [];
+  const seenPhotoPaths = new Set<string>();
   for (const item of photos) {
     const path = String(item?.path || "").trim();
     const mimeType = String(item?.mime_type || "").trim();
-    if (!isOwnedStoragePath(path, user.id)) continue;
+    if (!isOwnedStoragePath(path, user.id) || seenPhotoPaths.has(path)) continue;
     if (!isAllowedImageType(mimeType)) continue;
     if (!(await storageObjectExists(store, "photos", path))) continue;
+    const { data: existingPhoto, error: existingPhotoError } = await store
+      .from("photos")
+      .select("id")
+      .eq("storage_path", path)
+      .maybeSingle();
+    if (existingPhotoError || existingPhoto) continue;
+    seenPhotoPaths.add(path);
     validPhotos.push({ path, mimeType });
   }
   if (photos.length && validPhotos.length !== photos.length) {
-    await removeStoragePaths(store, "photos", validPhotos.map((photo) => photo.path));
     return json({ error: "One or more uploaded photos could not be verified. Please choose them again." }, 400);
   }
 

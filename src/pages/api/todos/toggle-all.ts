@@ -46,7 +46,8 @@ export const POST: APIRoute = async ({ locals }) => {
       archived_at: null,
     })
     .eq("owner_id", user.id)
-    .in("id", todoIds);
+    .in("id", todoIds)
+    .eq("completed", true);
 
   if (error) return json({ error: "Could not reopen the tasks." }, 500);
   return json({ ok: true });

@@ -5,6 +5,43 @@ import { startSession } from "../../../lib/auth";
 import { safeLocalRedirect } from "../../../lib/redirect";
 import { checkLoginRateLimit, clearLoginFailures, recordLoginFailure } from "../../../lib/security";
 
+const MAX_LOGIN_BODY_BYTES = 8 * 1024;
+
+async function readLoginForm(request: Request) {
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/x-www-form-urlencoded") return null;
+
+  const declaredLength = request.headers.get("content-length");
+  if (declaredLength) {
+    const length = Number(declaredLength);
+    if (!Number.isSafeInteger(length) || length < 0 || length > MAX_LOGIN_BODY_BYTES) return null;
+  }
+
+  if (!request.body) return new URLSearchParams();
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let received = 0;
+  let body = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > MAX_LOGIN_BODY_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      body += decoder.decode(value, { stream: true });
+    }
+    body += decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
+
+  return new URLSearchParams(body);
+}
+
 function passwordMatches(input: string) {
   const encoded = String(process.env.LOGIN_PASSWORD_HASH || import.meta.env.LOGIN_PASSWORD_HASH || "");
   const [algorithm, saltText, expectedText] = encoded.split("$");
@@ -25,7 +62,8 @@ function backToLogin(message: string, redirectTo = "/?skipCover=1#home") {
 }
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
-  const form = await request.formData();
+  const form = await readLoginForm(request);
+  if (!form) return redirect(backToLogin("Invalid login request."), 303);
   const accountName = String(form.get("account") || "").trim().toLowerCase();
   const password = String(form.get("password") || "");
   const redirectTo = safeLocalRedirect(String(form.get("redirect") || ""), "/?skipCover=1#home");
