@@ -164,6 +164,7 @@ EOF
   rm -f /etc/nginx/sites-enabled/default
   nginx -t
   systemctl enable --now nginx
+  systemctl reload nginx
   curl --noproxy '*' --fail --silent --show-error --resolve "${DOMAIN}:80:127.0.0.1" "$acme_probe_url" | grep -qx 'mwblog-acme-probe' \
     || { echo "Nginx could not serve the local ACME challenge probe." >&2; exit 1; }
   if ! certbot certonly --webroot --webroot-path "$ACME_WEBROOT" --cert-name "$DOMAIN" --keep-until-expiring -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email; then
