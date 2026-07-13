@@ -90,6 +90,7 @@ const authorKey = (profile?.author_key || "white") as AuthorKey;
             <div class="site-nav__auth">
               <form action="/api/auth/logout" method="post">
                 <span class={`auth-pill auth-pill--${authorKey}`} title={profile?.display_name || AUTHOR_LABELS[authorKey]}>{profile?.display_name || AUTHOR_LABELS[authorKey]}</span>
+                <button class="auth-link" type="button" data-private-space-change title="Change private-space passphrase">Passphrase</button>
                 <button class="auth-link" type="submit" aria-label="Log out">Log out</button>
               </form>
             </div>

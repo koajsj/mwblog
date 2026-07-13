@@ -126,3 +126,45 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
   return json({ ok: true, bundle: data?.bundle || bundle });
 };
+
+export const PUT: APIRoute = async ({ request, locals }) => {
+  const user = locals.user;
+  if (!user) return json({ error: "Please log in." }, 401);
+
+  const payload = await request.json().catch(() => null);
+  const rawBundle = payload?.bundle;
+  const expectedFingerprint = String(payload?.expectedFingerprint || "");
+  if (!rawBundle || JSON.stringify(rawBundle).length > 4096) {
+    return json({ error: "Invalid private-space key bundle." }, 400);
+  }
+  const bundle = normalizeBundle(rawBundle);
+  if (!bundle || !/^[A-Za-z0-9_-]{16}$/.test(expectedFingerprint) || bundle.fingerprint !== expectedFingerprint) {
+    return json({ error: "Invalid private-space key bundle." }, 400);
+  }
+
+  const store = createLocalsClient(locals);
+  const { data: existing, error: existingError } = await store
+    .from("private_space_keys")
+    .select("bundle")
+    .eq("space_id", PRIVATE_SPACE_ID)
+    .maybeSingle();
+  if (existingError) return json({ error: "Could not verify the private-space key bundle." }, 500);
+  if (!existing?.bundle || existing.bundle.fingerprint !== expectedFingerprint) {
+    return json({ error: "The private-space key changed elsewhere. Reload and try again." }, 409);
+  }
+
+  const { data, error } = await store
+    .from("private_space_keys")
+    .update({
+      bundle,
+      updated_by: user.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("space_id", PRIVATE_SPACE_ID)
+    .eq("bundle", existing.bundle)
+    .select("bundle")
+    .maybeSingle();
+  if (error) return json({ error: "Could not update the private-space passphrase." }, 500);
+  if (!data) return json({ error: "The private-space key changed elsewhere. Reload and try again." }, 409);
+  return json({ ok: true, bundle: data.bundle || bundle });
+};

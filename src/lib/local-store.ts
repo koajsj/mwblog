@@ -364,7 +364,10 @@ class LocalQuery {
         }
       }
     }
-    if (this.table === "private_space_keys" && rows.some((row) => row.created_by !== this.userId || row.updated_by !== this.userId)) {
+    if (this.table === "private_space_keys" && rows.some((row) => (
+      ("created_by" in row && row.created_by !== this.userId)
+      || ("updated_by" in row && row.updated_by !== this.userId)
+    ))) {
       throw new Error("Invalid private-space key owner.");
     }
     if (this.table === "todo_activity_entries") {
@@ -475,9 +478,9 @@ class LocalQuery {
           rows = [];
         } else {
         const where = this.whereClause(true);
-        db.prepare(`UPDATE ${this.table} SET ${columns.map((column) => `${column} = ?`).join(", ")}${where.sql}`)
+        const result = db.prepare(`UPDATE ${this.table} SET ${columns.map((column) => `${column} = ?`).join(", ")}${where.sql}`)
           .run(...columns.map((column) => dbValue(this.table, column, payload[column])), ...where.values);
-          rows = rowsToUpdate.map((row) => parseRow(this.table, { ...row, ...payload }));
+          rows = result.changes ? rowsToUpdate.map((row) => parseRow(this.table, { ...row, ...payload })) : [];
         }
       } else {
         const rowsToDelete = this.readRows(true);

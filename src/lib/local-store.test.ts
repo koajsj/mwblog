@@ -101,7 +101,7 @@ test("server sessions can be created and revoked", () => {
   assert.equal(readSessionProfile(token), null);
 });
 
-test("private-space key bundle is insert-only", async () => {
+test("private-space key bundle can be changed by either fixed account", async () => {
   const store = createLocalsClient({ user: kikou } as App.Locals);
   const row = {
     space_id: "private-couple-space",
@@ -114,4 +114,18 @@ test("private-space key bundle is insert-only", async () => {
   const second = await store.from("private_space_keys").insert(row).select("bundle").single();
   assert.equal(first.error, null);
   assert.equal(second.error?.code, "23505");
+
+  const brownStore = createLocalsClient({ user: scoinmic } as App.Locals);
+  const changed = await brownStore.from("private_space_keys").update({
+    bundle: { version: 1, fingerprint: "fedcba9876543210" },
+    updated_by: scoinmic.id,
+  }).eq("space_id", row.space_id).select("bundle").single();
+  assert.equal(changed.error, null);
+  assert.equal(changed.data.bundle.fingerprint, "fedcba9876543210");
+
+  const invalid = await brownStore.from("private_space_keys").update({
+    bundle: row.bundle,
+    updated_by: kikou.id,
+  }).eq("space_id", row.space_id).select("bundle").single();
+  assert.match(invalid.error?.message || "", /Invalid private-space key owner/);
 });

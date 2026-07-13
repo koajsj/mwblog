@@ -12,6 +12,7 @@
   var LEGACY_RAW_KEY_SESSION = "ournest.private.raw.v1";
   var LEGACY_BUNDLE_SESSION = "ournest.private.bundle.v1";
   var RAW_KEY_SESSION = "ournest.private.raw.wc2";
+  var RAW_KEY_PERSISTENT = "ournest.private.raw.wc2.persistent";
   var CLEAR_SIGNAL_KEY = "ournest.private.clear.v1";
   var READY_EVENT = "ournest-private-ready";
   var FAILED_EVENT = "ournest-private-failed";
@@ -67,6 +68,9 @@
       sessionStorage.removeItem(LEGACY_RAW_KEY_SESSION);
       sessionStorage.removeItem(LEGACY_BUNDLE_SESSION);
     } catch (error) {}
+    try {
+      localStorage.removeItem(RAW_KEY_PERSISTENT);
+    } catch (error) {}
   }
 
   function clearLegacyStoredKeys() {
@@ -77,23 +81,28 @@
   }
 
   function storeRawKey(rawKey, bundle) {
+    var stored = JSON.stringify({
+      fingerprint: String(bundle && bundle.fingerprint || ""),
+      key: b64urlEncode(rawKey),
+    });
     try {
-      sessionStorage.setItem(RAW_KEY_SESSION, JSON.stringify({
-        fingerprint: String(bundle && bundle.fingerprint || ""),
-        key: b64urlEncode(rawKey),
-      }));
+      sessionStorage.setItem(RAW_KEY_SESSION, stored);
+    } catch (error) {}
+    try {
+      localStorage.setItem(RAW_KEY_PERSISTENT, stored);
     } catch (error) {}
   }
 
   function loadStoredKey(bundle) {
     try {
-      var stored = JSON.parse(sessionStorage.getItem(RAW_KEY_SESSION) || "null");
+      var stored = JSON.parse(localStorage.getItem(RAW_KEY_PERSISTENT) || sessionStorage.getItem(RAW_KEY_SESSION) || "null");
       if (!stored || stored.fingerprint !== String(bundle && bundle.fingerprint || "")) return Promise.resolve(null);
       var rawKey = b64urlDecode(stored.key);
       if (rawKey.length !== 32) throw new Error("invalid key");
       return fingerprint(rawKey).then(function (fp) {
         if (fp !== stored.fingerprint) throw new Error("invalid fingerprint");
         return importSpaceKey(rawKey).then(function (key) {
+          storeRawKey(rawKey, bundle);
           rawKey.fill(0);
           return key;
         });
@@ -231,6 +240,22 @@
     });
   }
 
+  function replaceBundle(bundle, expectedFingerprint) {
+    return fetch("/api/private-space/key-bundle", {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ bundle: bundle, expectedFingerprint: expectedFingerprint }),
+    }).then(function (response) {
+      if (response.status === 401 || response.status === 403) clearAfterSessionLoss();
+      return response.json().catch(function () { return {}; }).then(function (data) {
+        if (!response.ok) throw new Error(data.error || "Could not update the private-space passphrase.");
+        bundleCache = data.bundle || bundle;
+        return bundleCache;
+      });
+    });
+  }
+
   function ensureGate() {
     var gate = document.getElementById("privateSpaceGate");
     if (gate) return gate;
@@ -266,6 +291,7 @@
       '<h2 id="privateSpaceTitle">Unlock your private space</h2>',
       '<p id="privateSpaceLead">Sensitive content is encrypted in your browser. Enter the private-space passphrase to unlock it on this device.</p>',
       '<label id="privateSpacePassphraseField"><input id="privateSpacePassphrase" type="password" autocomplete="off" placeholder="Private-space passphrase" /></label>',
+      '<label id="privateSpaceNewPassphraseField" class="is-hidden"><input id="privateSpaceNewPassphrase" type="password" autocomplete="new-password" placeholder="New private-space passphrase" /></label>',
       '<label id="privateSpaceConfirmField" class="is-hidden"><input id="privateSpaceConfirm" type="password" autocomplete="new-password" placeholder="Confirm the passphrase" /></label>',
       '<label id="privateSpaceRecoveryField" class="is-hidden"><textarea id="privateSpaceRecovery" spellcheck="false" placeholder="Recovery code"></textarea></label>',
       '<small id="privateSpaceHelp">This passphrase is separate from the login password and never leaves the browser.</small>',
@@ -284,6 +310,7 @@
     var title = document.getElementById("privateSpaceTitle");
     var lead = document.getElementById("privateSpaceLead");
     var passField = document.getElementById("privateSpacePassphraseField");
+    var newPassField = document.getElementById("privateSpaceNewPassphraseField");
     var confirmField = document.getElementById("privateSpaceConfirmField");
     var recoveryField = document.getElementById("privateSpaceRecoveryField");
     var help = document.getElementById("privateSpaceHelp");
@@ -294,6 +321,7 @@
     var recoveryBox = document.getElementById("privateSpaceRecoveryBox");
     var recoveryCode = document.getElementById("privateSpaceRecoveryCode");
     var passInput = document.getElementById("privateSpacePassphrase");
+    var newPassInput = document.getElementById("privateSpaceNewPassphrase");
     var confirmInput = document.getElementById("privateSpaceConfirm");
     var recoveryInput = document.getElementById("privateSpaceRecovery");
 
@@ -303,14 +331,18 @@
     error.textContent = "";
     modeBtn.classList.remove("is-hidden");
     passInput.value = "";
+    newPassInput.value = "";
     confirmInput.value = "";
     recoveryInput.value = "";
+    passInput.placeholder = "Private-space passphrase";
+    newPassInput.placeholder = "New private-space passphrase";
     recoveryBox.classList.add("is-hidden");
     if (recoveryCode) recoveryCode.textContent = "";
 
     if (mode === "setup") {
       title.textContent = "Create your private-space key";
       lead.textContent = "Generate a browser-side encryption key for the two-person space. The passphrase protects the key, but is not the key itself.";
+      newPassField.classList.add("is-hidden");
       confirmField.classList.remove("is-hidden");
       recoveryField.classList.add("is-hidden");
       passField.classList.remove("is-hidden");
@@ -321,6 +353,7 @@
     } else if (mode === "recovery") {
       title.textContent = "Unlock with recovery code";
       lead.textContent = "Use the recovery code generated when the private-space key was first created.";
+      newPassField.classList.add("is-hidden");
       confirmField.classList.add("is-hidden");
       passField.classList.add("is-hidden");
       recoveryField.classList.remove("is-hidden");
@@ -331,6 +364,7 @@
     } else if (mode === "created") {
       title.textContent = "Recovery code";
       lead.textContent = "This code can unlock the private-space key on a new device if the passphrase is forgotten.";
+      newPassField.classList.add("is-hidden");
       confirmField.classList.add("is-hidden");
       passField.classList.add("is-hidden");
       recoveryField.classList.add("is-hidden");
@@ -340,9 +374,25 @@
       modeBtn.textContent = "Use passphrase instead";
       primary.textContent = "Continue";
       secondary.textContent = "Log out";
+    } else if (mode === "change" || mode === "change-recovery") {
+      var useRecovery = mode === "change-recovery";
+      title.textContent = "Change private-space passphrase";
+      lead.textContent = "Verify the current secret, then choose a new passphrase. Your encrypted content stays unchanged.";
+      passField.classList.toggle("is-hidden", useRecovery);
+      newPassField.classList.remove("is-hidden");
+      confirmField.classList.remove("is-hidden");
+      recoveryField.classList.toggle("is-hidden", !useRecovery);
+      passInput.placeholder = "Current private-space passphrase";
+      help.textContent = useRecovery
+        ? "The recovery code can verify this change when the current passphrase is unavailable."
+        : "Use at least 14 characters. The recovery code will continue to work.";
+      modeBtn.textContent = useRecovery ? "Use current passphrase instead" : "Use recovery code instead";
+      primary.textContent = "Change passphrase";
+      secondary.textContent = "Cancel";
     } else {
       title.textContent = "Unlock your private space";
       lead.textContent = "Sensitive content is encrypted in your browser. Enter the private-space passphrase to unlock it on this device.";
+      newPassField.classList.add("is-hidden");
       confirmField.classList.add("is-hidden");
       recoveryField.classList.add("is-hidden");
       passField.classList.remove("is-hidden");
@@ -355,6 +405,7 @@
     return {
       gate: gate,
       passInput: passInput,
+      newPassInput: newPassInput,
       confirmInput: confirmInput,
       recoveryInput: recoveryInput,
       error: error,
@@ -399,12 +450,16 @@
   }
 
   function logoutNow() {
-    clearPrivateState();
     return fetch("/api/auth/logout", {
       method: "POST",
       credentials: "same-origin",
-    }).catch(function () {}).then(function () {
+    }).then(function (response) {
+      if (!response.ok) throw new Error("Could not log out.");
       window.location.href = "/auth/login";
+      return true;
+    }).catch(function () {
+      window.alert("Could not log out. Please try again.");
+      return false;
     });
   }
 
@@ -589,6 +644,87 @@
           clearStoredRawKey();
         });
       };
+    });
+  }
+
+  function showChangePassphrase() {
+    return ensureReady().then(function () {
+      var bundle = bundleCache;
+      if (!bundle) throw new Error("The private-space key is not available.");
+      var useRecovery = false;
+
+      function render() {
+        var view = showGate(useRecovery ? "change-recovery" : "change");
+        view.secondary.onclick = function () {
+          hideGate();
+        };
+        view.modeBtn.onclick = function () {
+          useRecovery = !useRecovery;
+          render();
+        };
+        view.primary.onclick = function () {
+          var currentSecret = trim(useRecovery ? view.recoveryInput.value : view.passInput.value);
+          var newPassphrase = trim(view.newPassInput.value);
+          var confirmation = trim(view.confirmInput.value);
+          if (!currentSecret) {
+            view.error.textContent = useRecovery ? "Enter the recovery code first." : "Enter the current passphrase.";
+            return;
+          }
+          if (!newPassphrase || newPassphrase.length < 14) {
+            view.error.textContent = "Use a new passphrase with at least 14 characters.";
+            return;
+          }
+          if (newPassphrase !== confirmation) {
+            view.error.textContent = "The two new passphrase entries do not match.";
+            return;
+          }
+
+          var rawKey = null;
+          var verified = false;
+          view.error.textContent = "";
+          view.primary.disabled = true;
+          view.secondary.disabled = true;
+          unwrapRawKey(bundle, useRecovery ? bundle.recovery : bundle.passphrase, currentSecret)
+            .then(function (key) {
+              rawKey = key;
+              return fingerprint(rawKey);
+            })
+            .then(function (fp) {
+              if (fp !== String(bundle.fingerprint || "")) throw new Error("wrong key");
+              verified = true;
+              return wrapRawKey(rawKey, newPassphrase);
+            })
+            .then(function (passphraseEnvelope) {
+              return replaceBundle({
+                version: bundle.version,
+                kdf: bundle.kdf,
+                passphrase: passphraseEnvelope,
+                recovery: bundle.recovery,
+                fingerprint: bundle.fingerprint,
+              }, bundle.fingerprint);
+            })
+            .then(function (savedBundle) {
+              storeRawKey(rawKey, savedBundle);
+              rawKey.fill(0);
+              rawKey = null;
+              bundle = savedBundle;
+              hideGate();
+              window.alert("Private-space passphrase changed.");
+            })
+            .catch(function (error) {
+              if (rawKey) rawKey.fill(0);
+              if (!verified) {
+                view.error.textContent = useRecovery ? "The recovery code is incorrect." : "The current passphrase is incorrect.";
+              } else {
+                view.error.textContent = error instanceof Error ? error.message : "Could not change the private-space passphrase.";
+              }
+              view.primary.disabled = false;
+              view.secondary.disabled = false;
+            });
+        };
+      }
+
+      render();
     });
   }
 
@@ -845,6 +981,7 @@
     hydratePhotoNodes: hydratePhotoNodes,
     fetchPhotoBlobUrl: fetchPhotoBlobUrl,
     encryptFormFields: encryptFormFields,
+    changePassphrase: showChangePassphrase,
     isEncryptedText: function (value) {
       var text = String(value || "");
       return text.indexOf(TEXT_PREFIX) === 0 || text.indexOf(PREVIOUS_TEXT_PREFIX) === 0;
@@ -856,6 +993,26 @@
 
   window.addEventListener("storage", function (event) {
     if (event.key === CLEAR_SIGNAL_KEY && event.newValue) clearAfterSessionLoss(false);
+  });
+
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!form || form.tagName !== "FORM" || form.getAttribute("action") !== "/api/auth/logout") return;
+    event.preventDefault();
+    var button = form.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    logoutNow().then(function (loggedOut) {
+      if (!loggedOut && button) button.disabled = false;
+    });
+  });
+
+  document.addEventListener("click", function (event) {
+    var target = event.target && event.target.closest && event.target.closest("[data-private-space-change]");
+    if (!target) return;
+    event.preventDefault();
+    showChangePassphrase().catch(function (error) {
+      window.alert(error instanceof Error ? error.message : "Could not open the passphrase settings.");
+    });
   });
 
   clearLegacyStoredKeys();

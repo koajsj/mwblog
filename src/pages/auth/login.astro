@@ -16,7 +16,6 @@ const redirectTo = safeLocalRedirect(Astro.url.searchParams.get("redirect") || "
       try {
         sessionStorage.removeItem("ournest.private.raw.v1");
         sessionStorage.removeItem("ournest.private.bundle.v1");
-        localStorage.setItem("ournest.private.clear.v1", `${Date.now()}:${Math.random().toString(36).slice(2)}`);
       } catch {}
     </script>
     <script is:inline>document.documentElement.classList.add("site-loading");</script>
