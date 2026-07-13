@@ -31,6 +31,7 @@
     markPieces();
     updateNavState(true);
     initNavIndicator();
+    window.requestAnimationFrame(revealActiveMobileNavLink);
     // 一次性切换：旧态 = .pt-loading 把元素卡在隐藏；新态 =
     // .pt-ready + .pt-entered + .pt-page-piece 给出显示样式 + transition。
     // 浏览器对比前后样式后会触发 opacity / transform / filter 过渡。
@@ -235,6 +236,15 @@
            navLinks.querySelector("a");
   }
 
+  function revealActiveMobileNavLink() {
+    if (!window.matchMedia || !window.matchMedia("(max-width: 680px)").matches) return;
+    var navLinks = document.querySelector(".site-nav__links");
+    var active = getActiveNavLink();
+    if (!navLinks || !active) return;
+    var target = active.offsetLeft - (navLinks.clientWidth - active.offsetWidth) / 2;
+    navLinks.scrollLeft = Math.max(0, target);
+  }
+
   function positionIndicator(link, animate) {
     if (!navIndicator || !link || link.offsetWidth < 1) return;
     if (animate) navIndicator.classList.remove("is-snap");
@@ -312,7 +322,10 @@
     if (!document.documentElement.classList.contains("pt-ready")) enter();
   });
   window.addEventListener("scroll", scheduleNavUpdate, { passive: true });
-  window.addEventListener("resize", function () { updateNavState(true); });
+  window.addEventListener("resize", function () {
+    updateNavState(true);
+    revealActiveMobileNavLink();
+  });
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", enter);

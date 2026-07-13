@@ -385,7 +385,7 @@
       passInput.placeholder = "Current private-space passphrase";
       help.textContent = useRecovery
         ? "The recovery code can verify this change when the current passphrase is unavailable."
-        : "Use at least 14 characters. The recovery code will continue to work.";
+        : "Choose a passphrase you can remember. The recovery code will continue to work.";
       modeBtn.textContent = useRecovery ? "Use current passphrase instead" : "Use recovery code instead";
       primary.textContent = "Change passphrase";
       secondary.textContent = "Cancel";
@@ -516,8 +516,8 @@
       view.primary.onclick = function () {
         var passphrase = trim(view.passInput.value);
         var confirm = trim(view.confirmInput.value);
-        if (!passphrase || passphrase.length < 14) {
-          view.error.textContent = "Use a passphrase with at least 14 characters.";
+        if (!passphrase) {
+          view.error.textContent = "Enter a private-space passphrase.";
           return;
         }
         if (passphrase !== confirm) {
@@ -670,8 +670,8 @@
             view.error.textContent = useRecovery ? "Enter the recovery code first." : "Enter the current passphrase.";
             return;
           }
-          if (!newPassphrase || newPassphrase.length < 14) {
-            view.error.textContent = "Use a new passphrase with at least 14 characters.";
+          if (!newPassphrase) {
+            view.error.textContent = "Enter a new private-space passphrase.";
             return;
           }
           if (newPassphrase !== confirmation) {
