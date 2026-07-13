@@ -64,11 +64,14 @@ prepare_directories() {
   install -d -o "$APP_USER" -g "$APP_USER" -m 0700 "$DATA_DIR" "$DATA_DIR/storage" "$BACKUP_DIR" "$NPM_CACHE_DIR"
   if [ ! -f "$ENV_FILE" ]; then
     umask 077
-    printf 'APP_ORIGIN=https://%s\nAPP_DATA_DIR=%s\nBACKUP_ENCRYPTION_KEY=%s\n' \
+    printf 'APP_ORIGIN=https://%s\nAPP_DATA_DIR=%s\nBACKUP_ENCRYPTION_KEY=%s\nENABLE_IP_WEATHER=1\n' \
       "$DOMAIN" "$DATA_DIR" "$(generate_key)" > "$ENV_FILE"
   fi
   if ! grep -q '^LOGIN_PASSWORD_HASH=' "$ENV_FILE"; then
     printf "LOGIN_PASSWORD_HASH='%s'\n" "$LOGIN_PASSWORD_HASH_DEFAULT" >> "$ENV_FILE"
+  fi
+  if ! grep -q '^ENABLE_IP_WEATHER=' "$ENV_FILE"; then
+    printf 'ENABLE_IP_WEATHER=1\n' >> "$ENV_FILE"
   fi
   chown root:"$APP_USER" "$ENV_FILE"
   chmod 0640 "$ENV_FILE"

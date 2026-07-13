@@ -4,7 +4,7 @@
 
 固定账号为 `kikou` 和 `scoinmic`，登录密码已按约定写成部署时使用的 scrypt 校验值，仓库不保存明文密码。
 
-网站域名已经默认设为 `076113.xyz`。为避免把访问者 IP 发送给第三方，自动 IP 天气默认关闭。
+网站域名已经默认设为 `076113.xyz`。自动 IP 天气默认开启，会把访问者 IP 发送给第三方定位服务；不需要时可关闭。
 
 ## 你需要准备什么
 
@@ -100,7 +100,7 @@ Deployment complete: https://076113.xyz
 
 不要选择 `Flexible`，它会破坏安全 Cookie 和请求来源校验。
 
-如明确接受把访问者 IP 交给 `ipwho.is` 做城市定位，可在 `/etc/mwblog.env` 增加 `ENABLE_IP_WEATHER=1` 后重启服务。默认不要开启。
+天气默认会把访问者 IP 交给 `ipwho.is` 做城市定位，再向 Open-Meteo 查询天气。要关闭它，可在 `/etc/mwblog.env` 设置 `ENABLE_IP_WEATHER=0` 后重启服务。
 
 ## 以后更新
 

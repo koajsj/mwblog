@@ -15,7 +15,11 @@ PORT="${PORT:-4321}"
 
 [ "$(id -u)" -eq 0 ] || { echo "Run with sudo: sudo mwblog-update" >&2; exit 1; }
 [ -L "$CURRENT_LINK" ] || { echo "Run the first deployment command before updating." >&2; exit 1; }
+[ -f "$ENV_FILE" ] || { echo "Environment file not found: $ENV_FILE" >&2; exit 1; }
 [[ "$PORT" =~ ^[1-9][0-9]{0,4}$ ]] && [ "$PORT" -le 65535 ] || { echo "Invalid port: $PORT" >&2; exit 1; }
+if ! grep -q '^ENABLE_IP_WEATHER=' "$ENV_FILE"; then
+  printf 'ENABLE_IP_WEATHER=1\n' >> "$ENV_FILE"
+fi
 
 previous="$(readlink -f "$CURRENT_LINK")"
 stamp="$(date -u +%Y%m%d%H%M%S)"
