@@ -116,6 +116,8 @@ export async function withScriptNonce(response: Response, nonce: string) {
 
   const html = await response.text();
   const headers = new Headers(response.headers);
+  // Nonce injection changes the body length, so any upstream length is stale.
+  headers.delete("content-length");
   const protectedHtml = html.replace(/<(script|style)(?=[\s>])(?![^>]*\bnonce=)/gi, `<$1 nonce="${nonce}"`);
   return new Response(protectedHtml, {
     status: response.status,

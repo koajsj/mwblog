@@ -17,7 +17,7 @@ const protectedApiPrefixes = [
   "/api/private-space",
   "/api/export",
 ];
-const privatePagePrefixes = ["/blog", "/records", "/photos", "/places", "/activity", "/todo"];
+const privatePagePrefixes = ["/blog", "/records", "/photos", "/places", "/activity", "/todo", "/export"];
 const authPages = ["/auth/login"];
 
 function isPrivatePagePath(pathname: string) {
