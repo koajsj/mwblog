@@ -191,16 +191,22 @@
 
     fetch("/api/status/ip-weather", { headers: { accept: "application/json" } })
       .then(function (response) {
-        if (!response.ok) throw new Error("weather unavailable");
-        return response.json();
+        return response.json().catch(function () { return null; }).then(function (data) {
+          if (!response.ok) throw new Error(data && data.error || "weather temporarily unavailable");
+          return data;
+        });
       })
       .then(function (data) {
         if (!data || !data.weather) return;
         target.textContent = data.weather;
         target.setAttribute("data-server-weather", data.weather);
       })
-      .catch(function () {
-        if (!target.textContent.trim()) target.textContent = "Weather temporarily unavailable";
+      .catch(function (error) {
+        if (serverWeatherFor(who)) return;
+        var message = error && error.message;
+        if (message === "IP weather is disabled for privacy.") target.textContent = "Weather is off for privacy";
+        else if (message === "location unavailable") target.textContent = "Location unavailable";
+        else target.textContent = "Weather temporarily unavailable";
       });
   }
 
