@@ -25,6 +25,9 @@ export default defineConfig({
   output: 'server',
   integrations: [react()],
   security: {
+    // API mutations are checked against APP_ORIGIN in src/middleware.ts. Astro's
+    // proxy-origin check rejects valid form posts when Cloudflare fronts the site.
+    checkOrigin: false,
     allowedDomains,
   },
   adapter: node({

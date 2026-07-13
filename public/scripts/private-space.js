@@ -854,11 +854,6 @@
     events: { ready: READY_EVENT, failed: FAILED_EVENT },
   };
 
-  document.addEventListener("submit", function (event) {
-    var form = event.target;
-    if (form && form.matches && form.matches('form[action="/api/auth/logout"]')) clearPrivateState();
-  }, true);
-
   window.addEventListener("storage", function (event) {
     if (event.key === CLEAR_SIGNAL_KEY && event.newValue) clearAfterSessionLoss(false);
   });
