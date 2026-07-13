@@ -139,7 +139,12 @@ EOF
 }
 
 install_nginx() {
+  local acme_probe_path="${ACME_WEBROOT}/.well-known/acme-challenge/mwblog-probe"
+  local acme_probe_url="http://${DOMAIN}/.well-known/acme-challenge/mwblog-probe"
   install -d -o root -g root -m 0755 "$ACME_WEBROOT"
+  install -d -o root -g root -m 0755 "$(dirname "$acme_probe_path")"
+  printf 'mwblog-acme-probe\n' > "$acme_probe_path"
+  chmod 0644 "$acme_probe_path"
   cat > "/etc/nginx/sites-available/${APP_NAME}" <<EOF
 server {
   listen 80;
@@ -159,12 +164,13 @@ EOF
   rm -f /etc/nginx/sites-enabled/default
   nginx -t
   systemctl enable --now nginx
+  curl --noproxy '*' --fail --silent --show-error --resolve "${DOMAIN}:80:127.0.0.1" "$acme_probe_url" | grep -qx 'mwblog-acme-probe' \
+    || { echo "Nginx could not serve the local ACME challenge probe." >&2; exit 1; }
   if ! certbot certonly --webroot --webroot-path "$ACME_WEBROOT" --cert-name "$DOMAIN" --keep-until-expiring -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email; then
-    rm -f "/etc/nginx/sites-enabled/${APP_NAME}"
-    nginx -t && systemctl reload nginx
-    echo "HTTPS certificate setup failed. The HTTP site was disabled." >&2
+    echo "HTTPS certificate setup failed. The application remains unavailable; the ACME probe is left online for diagnosis: ${acme_probe_url}" >&2
     exit 1
   fi
+  rm -f "$acme_probe_path"
 
   cat > "/etc/nginx/sites-available/${APP_NAME}" <<EOF
 server {
