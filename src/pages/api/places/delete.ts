@@ -18,14 +18,19 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   }
 
   const store = createLocalsClient(locals);
-  const { error } = await store
+  const { data, error } = await store
     .from("places")
     .delete()
     .eq("id", id)
-    .eq("owner_id", user.id);
+    .eq("owner_id", user.id)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not delete the place.")}`, 303);
+  }
+  if (!data) {
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("This place no longer exists. Please refresh and try again.")}`, 303);
   }
 
   return redirect(`${safeReturn}${sep}deleted=place`, 303);

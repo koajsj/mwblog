@@ -23,6 +23,7 @@ export interface Profile {
   mood_date?: string | null;
   doing_text?: string | null;
   doing_date?: string | null;
+  last_seen_at?: string | null;
 }
 
 export interface BlogPost {

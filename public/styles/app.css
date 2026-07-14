@@ -2544,6 +2544,27 @@ button { cursor: pointer; }
   font-weight: 650;
 }
 
+.home-status__presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-status__presence::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #9eabb8;
+  box-shadow: 0 0 0 3px rgba(158,171,184,.14);
+  content: "";
+}
+
+.home-status__presence[data-state="online"]::before {
+  background: #72ae8b;
+  box-shadow: 0 0 0 3px rgba(114,174,139,.16);
+}
+
 .home-status__editable {
   display: inline-flex;
   align-items: center;

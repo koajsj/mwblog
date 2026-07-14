@@ -875,9 +875,13 @@ const redirectTo = safeLocalRedirect(Astro.url.searchParams.get("redirect") || "
         btn.querySelector(".btn-text").textContent = "Logging in...";
         btn.disabled = true;
         try {
+          const body = new URLSearchParams();
+          new FormData(loginForm).forEach((value, key) => {
+            if (typeof value === "string") body.append(key, value);
+          });
           const response = await fetch(loginForm.action, {
             method: "POST",
-            body: new FormData(loginForm),
+            body,
             credentials: "same-origin",
           });
           if (!response.ok) throw new Error("Login request failed.");

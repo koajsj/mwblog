@@ -18,15 +18,21 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
 
   const store = createLocalsClient(locals);
   // 只能删自己的评论
-  const { error } = await store
+  const { data, error } = await store
     .from("comments")
     .delete()
     .eq("id", id)
-    .eq("author_id", user.id);
+    .eq("author_id", user.id)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     const sep = safeReturn.includes("?") ? "&" : "?";
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not delete the comment.")}`, 303);
+  }
+  if (!data) {
+    const sep = safeReturn.includes("?") ? "&" : "?";
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("This comment no longer exists. Please refresh and try again.")}`, 303);
   }
   return redirect(safeReturn, 303);
 };

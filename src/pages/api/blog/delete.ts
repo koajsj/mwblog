@@ -34,14 +34,19 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Post not found, or it does not belong to the current account")}`, 303);
   }
 
-  const { error: deleteError } = await store
+  const { data: deletedPost, error: deleteError } = await store
     .from("blog_posts")
     .delete()
     .eq("id", id)
-    .eq("author_id", user.id);
+    .eq("author_id", user.id)
+    .select("id")
+    .maybeSingle();
 
   if (deleteError) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not delete the diary entry.")}`, 303);
+  }
+  if (!deletedPost) {
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("This diary entry changed elsewhere. Please refresh and try again.")}`, 303);
   }
 
   if (post.storage_path && isOwnedStoragePath(post.storage_path, user.id)) {

@@ -23,6 +23,28 @@ test("local store initializes only the two fixed profiles", () => {
   assert.equal(profileByAccount("third"), null);
 });
 
+test("each account can update only its own recent online timestamp", async () => {
+  const whiteStore = createLocalsClient({ user: kikou } as App.Locals);
+  const brownStore = createLocalsClient({ user: scoinmic } as App.Locals);
+  const timestamp = "2026-07-14T08:30:00.000Z";
+
+  const updated = await whiteStore.from("profiles")
+    .update({ last_seen_at: timestamp })
+    .eq("id", kikou.id)
+    .select("id,last_seen_at")
+    .single();
+  assert.equal(updated.error, null);
+  assert.equal(updated.data.last_seen_at, timestamp);
+
+  const blocked = await brownStore.from("profiles")
+    .update({ last_seen_at: "2026-07-14T08:31:00.000Z" })
+    .eq("id", kikou.id)
+    .select("id,last_seen_at")
+    .maybeSingle();
+  assert.equal(blocked.error, null);
+  assert.equal(blocked.data, null);
+});
+
 test("one account cannot modify content owned by the other", async () => {
   const whiteStore = createLocalsClient({ user: kikou } as App.Locals);
   const brownStore = createLocalsClient({ user: scoinmic } as App.Locals);
@@ -91,6 +113,34 @@ test("an update returns the changed row when a filtered field changes", async ()
   assert.equal(error, null);
   assert.equal(changed.id, created.id);
   assert.equal(changed.completed, true);
+});
+
+test("a scoped delete reports whether it actually removed a row", async () => {
+  const store = createLocalsClient({ user: kikou } as App.Locals);
+  const { data: created, error: createError } = await store.from("todos").insert({
+    owner_id: kikou.id,
+    title: "encrypted-title",
+    due_on: null,
+  }).select("id").single();
+  assert.equal(createError, null);
+
+  const deleted = await store.from("todos")
+    .delete()
+    .eq("id", created.id)
+    .eq("owner_id", kikou.id)
+    .select("id")
+    .maybeSingle();
+  assert.equal(deleted.error, null);
+  assert.equal(deleted.data?.id, created.id);
+
+  const missing = await store.from("todos")
+    .delete()
+    .eq("id", created.id)
+    .eq("owner_id", kikou.id)
+    .select("id")
+    .maybeSingle();
+  assert.equal(missing.error, null);
+  assert.equal(missing.data, null);
 });
 
 test("server sessions can be created and revoked", () => {

@@ -18,14 +18,19 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   }
 
   const store = createLocalsClient(locals);
-  const { error } = await store
+  const { data, error } = await store
     .from("life_records")
     .delete()
     .eq("id", id)
-    .eq("owner_id", user.id);
+    .eq("owner_id", user.id)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not delete the life record.")}`, 303);
+  }
+  if (!data) {
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("This life record no longer exists. Please refresh and try again.")}`, 303);
   }
 
   return redirect(`${safeReturn}${sep}deleted=record`, 303);

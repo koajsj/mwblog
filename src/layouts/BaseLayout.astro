@@ -93,6 +93,7 @@ const homeHref = current === "home" ? "#home" : "/?skipCover=1#home";
       </main>
     )}
     {user && <script is:inline src="/scripts/private-space.js"></script>}
+    {user && <script is:inline src="/scripts/presence.js"></script>}
     <script is:inline src="/scripts/confirm-delete.js"></script>
     <script is:inline src="/scripts/site-prefetch.js"></script>
     <script is:inline src="/scripts/site-loader.js"></script>

@@ -44,7 +44,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
   );
   if (activityError) return json({ error: "Could not remove the linked activity records." }, 500);
 
-  const { error } = await store.from("todos").delete().eq("id", id).eq("owner_id", user.id);
+  const { data, error } = await store
+    .from("todos")
+    .delete()
+    .eq("id", id)
+    .eq("owner_id", user.id)
+    .select("id")
+    .maybeSingle();
   if (error) return json({ error: "Could not delete the task." }, 500);
+  if (!data) return json({ error: "Task status changed. Please refresh and try again." }, 409);
   return json({ ok: true });
 };

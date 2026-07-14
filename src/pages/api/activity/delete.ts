@@ -16,14 +16,19 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   }
 
   const store = createLocalsClient(locals);
-  const { error } = await store
+  const { data, error } = await store
     .from("activity_entries")
     .delete()
     .eq("id", id)
-    .eq("owner_id", user.id);
+    .eq("owner_id", user.id)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     return redirect(`${failTo}${failTo.includes("?") ? "&" : "?"}error=${encodeURIComponent("Could not delete the activity record.")}`, 303);
+  }
+  if (!data) {
+    return redirect(`${failTo}${failTo.includes("?") ? "&" : "?"}error=${encodeURIComponent("This activity record no longer exists. Please refresh and try again.")}`, 303);
   }
 
   return redirect(`${failTo}${failTo.includes("?") ? "&" : "?"}deleted=activity`, 303);

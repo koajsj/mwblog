@@ -60,7 +60,7 @@ const [
     .limit(1),
   store
     .from("profiles")
-    .select("id,account,author_key,display_name,weather_text,weather_updated_at,mood_text,mood_date,doing_text,doing_date,created_at")
+    .select("id,account,author_key,display_name,weather_text,weather_updated_at,mood_text,mood_date,doing_text,doing_date,last_seen_at,created_at")
     .in("author_key", ["white", "brown"]),
 ]);
 const dbPlaces = (placeRows || []) as Place[];
@@ -479,6 +479,10 @@ const randomMemoryDeck = [
                 >{"Location pending · Weather pending"}</dd>
               </div>
               <div>
+                <dt>Recent online</dt>
+                <dd class="home-status__presence" id="whitePresence" data-last-seen={whiteProfile?.last_seen_at ?? ""}>Last seen unavailable</dd>
+              </div>
+              <div>
                 <dt>Mood</dt>
                 <dd class="home-status__editable">
                   <span id="whiteMood" data-server-text={whiteMood}>{whiteMoodDefault}</span>
@@ -512,6 +516,10 @@ const randomMemoryDeck = [
                   data-server-weather={brownWeather}
                   data-updated={brownProfile?.weather_updated_at ?? ""}
                 >{"Location pending · Weather pending"}</dd>
+              </div>
+              <div>
+                <dt>Recent online</dt>
+                <dd class="home-status__presence" id="brownPresence" data-last-seen={brownProfile?.last_seen_at ?? ""}>Last seen unavailable</dd>
               </div>
               <div>
                 <dt>Mood</dt>

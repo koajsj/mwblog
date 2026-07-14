@@ -34,14 +34,19 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Photo not found, or it does not belong to the current account")}`, 303);
   }
 
-  const { error: deleteError } = await store
+  const { data: deletedPhoto, error: deleteError } = await store
     .from("photos")
     .delete()
     .eq("id", id)
-    .eq("owner_id", user.id);
+    .eq("owner_id", user.id)
+    .select("id")
+    .maybeSingle();
 
   if (deleteError) {
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent("Could not delete the photo.")}`, 303);
+  }
+  if (!deletedPhoto) {
+    return redirect(`${safeReturn}${sep}error=${encodeURIComponent("This photo changed elsewhere. Please refresh and try again.")}`, 303);
   }
 
   if (isOwnedStoragePath(photo.storage_path, user.id)) {

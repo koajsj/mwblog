@@ -22,6 +22,8 @@
   };
   var quoteTimers = {};
   var clockTimer = null;
+  var presenceTimer = null;
+  var PRESENCE_ONLINE_MS = 90 * 1000;
 
   try { localStorage.removeItem("cuteblog.home.status.v1"); } catch (error) {}
 
@@ -69,7 +71,71 @@
   function setupClock() {
     renderClock();
     if (clockTimer) window.clearInterval(clockTimer);
-    clockTimer = window.setInterval(renderClock, 60000);
+    clockTimer = window.setInterval(function () {
+      renderClock();
+      renderPresence();
+    }, 60000);
+  }
+
+  function formatPresenceTime(value) {
+    var date = new Date(value || "");
+    if (Number.isNaN(date.getTime())) return "";
+    return new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23"
+    }).format(date).replace(/\//g, "/");
+  }
+
+  function renderPresence() {
+    ["white", "brown"].forEach(function (who) {
+      var element = document.getElementById(who + "Presence");
+      if (!element) return;
+      var value = element.getAttribute("data-last-seen") || "";
+      var date = new Date(value);
+      var formatted = formatPresenceTime(value);
+      if (!formatted || Number.isNaN(date.getTime())) {
+        element.textContent = "No online activity yet";
+        element.setAttribute("data-state", "offline");
+        return;
+      }
+      var online = Date.now() - date.getTime() >= 0 && Date.now() - date.getTime() < PRESENCE_ONLINE_MS;
+      element.textContent = (online ? "Online now · " : "Last seen · ") + formatted;
+      element.setAttribute("data-state", online ? "online" : "offline");
+      element.title = formatted;
+    });
+  }
+
+  function refreshPresence() {
+    if (!window.fetch) return;
+    fetch("/api/status/presence", { credentials: "same-origin", headers: { accept: "application/json" } })
+      .then(function (response) {
+        if (!response.ok) throw new Error("Could not refresh online status.");
+        return response.json();
+      })
+      .then(function (payload) {
+        var profiles = payload && Array.isArray(payload.profiles) ? payload.profiles : [];
+        profiles.forEach(function (profile) {
+          if (!profile || (profile.author_key !== "white" && profile.author_key !== "brown")) return;
+          var element = document.getElementById(profile.author_key + "Presence");
+          if (element) element.setAttribute("data-last-seen", typeof profile.last_seen_at === "string" ? profile.last_seen_at : "");
+        });
+        renderPresence();
+      })
+      .catch(function () {
+        // Keep the last known state visible while the network is unavailable.
+      });
+  }
+
+  function setupPresence() {
+    renderPresence();
+    refreshPresence();
+    if (presenceTimer) window.clearInterval(presenceTimer);
+    presenceTimer = window.setInterval(refreshPresence, 45000);
+    window.addEventListener("our-nest:presence", refreshPresence);
   }
 
   function showFeedback(message) {
@@ -506,6 +572,7 @@
 
   setPeriod(periodForHour(new Date().getHours()));
   setupClock();
+  setupPresence();
   setupWeather();
   setupStatusActions();
   setupPhotos();

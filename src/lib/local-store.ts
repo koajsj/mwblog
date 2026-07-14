@@ -39,6 +39,7 @@ db.exec(`
     mood_date TEXT,
     doing_text TEXT,
     doing_date TEXT,
+    last_seen_at TEXT,
     space_id TEXT NOT NULL DEFAULT '${SPACE_ID}',
     created_at TEXT NOT NULL
   );
@@ -170,6 +171,10 @@ db.exec(`
   CREATE TRIGGER IF NOT EXISTS delete_record_comments AFTER DELETE ON life_records
   BEGIN DELETE FROM comments WHERE target_type = 'record' AND target_id = OLD.id; END;
 `);
+const profileColumns = db.prepare("PRAGMA table_info(profiles)").all() as Array<{ name?: string }>;
+if (!profileColumns.some((column) => column.name === "last_seen_at")) {
+  db.exec("ALTER TABLE profiles ADD COLUMN last_seen_at TEXT");
+}
 const schemaVersion = Number((db.prepare("PRAGMA user_version").get() as { user_version?: number })?.user_version || 0);
 if (schemaVersion > 1) throw new Error(`Database schema ${schemaVersion} is newer than this application supports.`);
 if (schemaVersion === 0) db.exec("PRAGMA user_version = 1");
@@ -234,6 +239,7 @@ const BOOLEAN_COLUMNS = new Set(["todos.completed"]);
 const PROFILE_UPDATE_COLUMNS = new Set([
   "weather_text", "weather_updated_at", "weather_lat", "weather_lng", "weather_label",
   "mood_text", "mood_date", "doing_text", "doing_date",
+  "last_seen_at",
 ]);
 
 type DbValue = string | number | bigint | null;
