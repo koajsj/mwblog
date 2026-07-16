@@ -10,6 +10,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const form = await request.formData();
   const id = String(form.get("id") || "").trim();
+  const clearDraft = String(form.get("draft_key") || "").trim().toLowerCase() === `todo-edit-${id.toLowerCase()}`;
   let title = "";
   try {
     title = readEncryptedText(form.get("title"), { maxLength: 4096, context: "todo.title" });
@@ -30,5 +31,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   if (error) return json({ error: "Could not update the task." }, 500);
   if (!data) return json({ error: "Task not found." }, 404);
+  if (clearDraft) {
+    await store.from("private_drafts").delete().eq("owner_id", user.id).eq("draft_key", `todo-edit-${id.toLowerCase()}`);
+  }
   return json({ ok: true });
 };

@@ -23,8 +23,19 @@ interface ApiState {
   canEdit: boolean;
 }
 
+type PrivateDraft = { values: Record<string, string>; savedAt: string } | null;
+type PrivateDraftApi = {
+  read: (key: string, contexts: Record<string, string>) => Promise<PrivateDraft>;
+  write: (key: string, values: Record<string, string>, contexts: Record<string, string>) => Promise<boolean>;
+  clear: (key: string) => Promise<boolean>;
+};
+
 function privateSpaceApi() {
   return (window as any).OurNestPrivate || null;
+}
+
+function privateDraftsApi(): PrivateDraftApi | null {
+  return (window as any).OurNestPrivateDrafts || null;
 }
 
 async function encryptPrivateTextValue(value: string, context = "todo.title") {
@@ -158,8 +169,11 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
   const [canEdit, setCanEdit] = useState(false);
   const [draft, setDraft] = useState("");
   const [draftDue, setDraftDue] = useState(todayKey());
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftNotice, setDraftNotice] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+  const [editingDraftReady, setEditingDraftReady] = useState(false);
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [completionMessage, setCompletionMessage] = useState("");
@@ -171,6 +185,13 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
   const modalCloseRef = useRef<HTMLButtonElement>(null);
   const loadRequestRef = useRef(0);
   const mutationsRef = useRef(new Set<string>());
+  const editDraftRequestRef = useRef(0);
+  const editInputVersionRef = useRef(0);
+  const draftInputVersionRef = useRef(0);
+  const pendingEditSaveRef = useRef<string | null>(null);
+  const editDraftReadableRef = useRef(false);
+  const skipEditSaveRef = useRef<string | null>(null);
+  const draftHasContentRef = useRef(false);
 
   async function runMutation(key: string, action: () => Promise<void>) {
     if (mutationsRef.current.has(key)) return;
@@ -258,6 +279,74 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
   }, [view]);
 
   useEffect(() => {
+    let active = true;
+    if (!canEdit || draftReady) return;
+    const drafts = privateDraftsApi();
+    if (!drafts) {
+      setDraftReady(true);
+      return;
+    }
+    draftInputVersionRef.current = 0;
+    drafts.read("todo-create", { title: "todo.title", due_on: "todo.due" }).then((saved) => {
+      if (!active) return;
+      if (saved?.values.title && draftInputVersionRef.current === 0) {
+        setDraft(saved.values.title);
+        if (saved.values.due_on) setDraftDue(saved.values.due_on);
+        setDraftNotice("Encrypted cloud draft restored.");
+      }
+      setDraftReady(true);
+    }).catch(() => {
+      if (!active) return;
+      setDraftNotice("Cloud draft could not be restored. Try again when the connection is back.");
+      setDraftReady(true);
+    });
+    return () => { active = false; };
+  }, [canEdit, draftReady]);
+
+  useEffect(() => {
+    if (!canEdit || !draftReady) return;
+    const drafts = privateDraftsApi();
+    if (!drafts) return;
+    if (!draft.trim()) {
+      if (!draftHasContentRef.current) return;
+      draftHasContentRef.current = false;
+      drafts.clear("todo-create").catch(() => {});
+      return;
+    }
+    draftHasContentRef.current = true;
+    const timer = window.setTimeout(() => {
+      drafts.write("todo-create", { title: draft, due_on: draftDue }, { title: "todo.title", due_on: "todo.due" })
+        .then((saved) => { if (saved) setDraftNotice("Encrypted draft saved to your private cloud."); })
+        .catch(() => setDraftNotice("Could not save the cloud draft. Your text is still here."));
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [canEdit, draft, draftDue, draftReady]);
+
+  useEffect(() => {
+    const pendingId = pendingEditSaveRef.current;
+    if (!editingDraftReady || !editingId || pendingId !== editingId) return;
+    pendingEditSaveRef.current = null;
+    saveEdit(editingId);
+  }, [editingId, editingDraftReady]);
+
+  useEffect(() => {
+    if (!editingId || !editingDraftReady) return;
+    const drafts = privateDraftsApi();
+    if (!drafts) return;
+    const key = `todo-edit-${editingId}`;
+    if (!editingTitle.trim()) {
+      drafts.clear(key).catch(() => {});
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      drafts.write(key, { title: editingTitle }, { title: "todo.title" }).catch(() => {
+        setMessage("Could not save the cloud draft. Your edit is still open.");
+      });
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [editingId, editingTitle, editingDraftReady]);
+
+  useEffect(() => {
     if (!completionIds.length) return;
     document.documentElement.classList.add("has-open-dialog");
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -272,6 +361,10 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
   }, [completionIds.length]);
 
   async function addTodo() {
+    if (!draftReady) {
+      setDraftNotice("Wait for the encrypted cloud draft to finish restoring.");
+      return;
+    }
     const title = draft.trim();
     if (!title) return;
     if (!draftDue) {
@@ -280,8 +373,11 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
     }
     try {
       await runMutation("add", async () => {
-        await postForm("/api/todos/create", { title: await encryptPrivateTextValue(title), due_on: draftDue });
+        await postForm("/api/todos/create", { title: await encryptPrivateTextValue(title), due_on: draftDue, draft_key: "todo-create" });
+        privateDraftsApi()?.clear("todo-create").catch(() => {});
+        draftHasContentRef.current = false;
         setDraft("");
+        setDraftNotice("");
         await loadTodos();
       });
     } catch (error) {
@@ -290,21 +386,69 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
   }
 
   async function saveEdit(id: string) {
+    if (!editingDraftReady) {
+      pendingEditSaveRef.current = id;
+      return;
+    }
+    if (skipEditSaveRef.current === id) {
+      skipEditSaveRef.current = null;
+      return;
+    }
     const title = editingTitle.trim();
     if (!title) {
       setMessage("A task needs a title. The original task was kept.");
       setEditingId(null);
+      setEditingDraftReady(false);
+      pendingEditSaveRef.current = null;
+      if (editDraftReadableRef.current) privateDraftsApi()?.clear(`todo-edit-${id}`).catch(() => {});
       return;
     }
     try {
       await runMutation(`edit:${id}`, async () => {
-        await postForm("/api/todos/update", { id, title: await encryptPrivateTextValue(title) });
+        const fields: Record<string, string> = { id, title: await encryptPrivateTextValue(title) };
+        if (editDraftReadableRef.current) fields.draft_key = `todo-edit-${id}`;
+        await postForm("/api/todos/update", fields);
+        if (editDraftReadableRef.current) privateDraftsApi()?.clear(`todo-edit-${id}`).catch(() => {});
         setEditingId(null);
+        setEditingDraftReady(false);
+        pendingEditSaveRef.current = null;
         await loadTodos();
       });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not update task");
     }
+  }
+
+  function startEdit(todo: TodoItem) {
+    const requestId = ++editDraftRequestRef.current;
+    setEditingId(todo.id);
+    setEditingTitle(todo.title);
+    setEditingDraftReady(false);
+    editInputVersionRef.current = 0;
+    pendingEditSaveRef.current = null;
+    editDraftReadableRef.current = false;
+    const drafts = privateDraftsApi();
+    if (!drafts) {
+      setEditingDraftReady(true);
+      return;
+    }
+    drafts.read(`todo-edit-${todo.id}`, { title: "todo.title" }).then((saved) => {
+      if (requestId !== editDraftRequestRef.current) return;
+      if (saved?.values.title && editInputVersionRef.current === 0) setEditingTitle(saved.values.title);
+      editDraftReadableRef.current = true;
+      setEditingDraftReady(true);
+    }).catch(() => {
+      if (requestId === editDraftRequestRef.current) setEditingDraftReady(true);
+    });
+  }
+
+  function cancelEdit(id: string) {
+    skipEditSaveRef.current = id;
+    editDraftRequestRef.current += 1;
+    pendingEditSaveRef.current = null;
+    setEditingId(null);
+    setEditingDraftReady(false);
+    if (editDraftReadableRef.current) privateDraftsApi()?.clear(`todo-edit-${id}`).catch(() => {});
   }
 
   async function deleteTodo(id: string) {
@@ -486,24 +630,31 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
             <input
               ref={inputRef}
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => {
+                draftInputVersionRef.current += 1;
+                setDraft(event.target.value);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") addTodo();
               }}
               placeholder={canEdit ? "Write a small thing to do..." : "Switch to your own list to add tasks"}
-              disabled={!canEdit}
+              disabled={!canEdit || !draftReady}
             />
             <input
               className="todo-new-due"
               type="date"
               value={draftDue}
-              onChange={(event) => setDraftDue(event.target.value)}
-              disabled={!canEdit}
+              onChange={(event) => {
+                draftInputVersionRef.current += 1;
+                setDraftDue(event.target.value);
+              }}
+              disabled={!canEdit || !draftReady}
               aria-label="Due date"
               title="Due date"
             />
-            <button type="button" onClick={addTodo} disabled={!canEdit || !draft.trim() || !draftDue} aria-label="Add task">↗</button>
+            <button type="button" onClick={addTodo} disabled={!canEdit || !draftReady || !draft.trim() || !draftDue} aria-label="Add task">↗</button>
           </div>
+          {draftNotice && <p className="todo-draft-note" role="status">{draftNotice}</p>}
 
           <div className="todo-filters" aria-label="Task filters">
             {(["all", "active", "completed"] as Filter[]).map((item) => (
@@ -542,11 +693,16 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
                       className="todo-edit"
                       value={editingTitle}
                       autoFocus
-                      onChange={(event) => setEditingTitle(event.target.value)}
+                      readOnly={!editingDraftReady}
+                      aria-busy={!editingDraftReady}
+                      onChange={(event) => {
+                        editInputVersionRef.current += 1;
+                        setEditingTitle(event.target.value);
+                      }}
                       onBlur={() => saveEdit(todo.id)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") saveEdit(todo.id);
-                        if (event.key === "Escape") setEditingId(null);
+                        if (event.key === "Escape") cancelEdit(todo.id);
                       }}
                     />
                   ) : (
@@ -555,8 +711,7 @@ export default function TodoApp({ initialView, authorNames, currentAuthor, profi
                       type="button"
                       onDoubleClick={() => {
                         if (!canEdit) return;
-                        setEditingId(todo.id);
-                        setEditingTitle(todo.title);
+                        startEdit(todo);
                       }}
                     >
                       {todo.title}

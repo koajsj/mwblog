@@ -152,6 +152,16 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS private_drafts (
+    owner_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    draft_key TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    space_id TEXT NOT NULL DEFAULT '${SPACE_ID}',
+    PRIMARY KEY (owner_id, draft_key)
+  );
+
   CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
@@ -165,6 +175,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS activity_entries_date_idx ON activity_entries(activity_on DESC, start_time);
   CREATE INDEX IF NOT EXISTS todos_owner_idx ON todos(owner_id, archived_at, created_at DESC);
   CREATE INDEX IF NOT EXISTS comments_target_idx ON comments(target_type, target_id, created_at);
+  CREATE INDEX IF NOT EXISTS private_drafts_updated_idx ON private_drafts(owner_id, updated_at);
 
   CREATE TRIGGER IF NOT EXISTS delete_blog_comments AFTER DELETE ON blog_posts
   BEGIN DELETE FROM comments WHERE target_type = 'blog' AND target_id = OLD.id; END;
@@ -223,7 +234,7 @@ cleanupOrphanStorage();
 
 const TABLES = new Set([
   "profiles", "blog_posts", "photos", "life_records", "activity_entries", "places", "comments",
-  "todos", "todo_activity_entries", "private_space_keys",
+  "todos", "todo_activity_entries", "private_space_keys", "private_drafts",
 ]);
 const OWNER_COLUMNS: Record<string, string> = {
   blog_posts: "author_id",
@@ -233,8 +244,9 @@ const OWNER_COLUMNS: Record<string, string> = {
   places: "owner_id",
   comments: "author_id",
   todos: "owner_id",
+  private_drafts: "owner_id",
 };
-const JSON_COLUMNS = new Set(["blog_posts.tags", "private_space_keys.bundle"]);
+const JSON_COLUMNS = new Set(["blog_posts.tags", "private_space_keys.bundle", "private_drafts.payload"]);
 const BOOLEAN_COLUMNS = new Set(["todos.completed"]);
 const PROFILE_UPDATE_COLUMNS = new Set([
   "weather_text", "weather_updated_at", "weather_lat", "weather_lng", "weather_label",
@@ -340,7 +352,7 @@ class LocalQuery {
   upsert(payload: Record<string, unknown> | Record<string, unknown>[], options?: { onConflict?: string }) {
     this.action = "upsert";
     this.payload = payload;
-    this.conflictColumn = safeIdentifier(options?.onConflict || "id");
+    this.conflictColumn = String(options?.onConflict || "id").split(",").map(safeIdentifier).join(",");
     return this;
   }
   eq(column: string, value: unknown) { this.filters.push({ column: safeIdentifier(column), operator: "=", value }); return this; }
@@ -431,9 +443,9 @@ class LocalQuery {
     const now = new Date().toISOString();
     const rows = source.map((input) => {
       const row = { ...input } as Record<string, unknown>;
-      if (!row.id && !["profiles", "todo_activity_entries", "private_space_keys"].includes(this.table)) row.id = randomUUID();
+      if (!row.id && !["profiles", "todo_activity_entries", "private_space_keys", "private_drafts"].includes(this.table)) row.id = randomUUID();
       if (!("created_at" in row)) row.created_at = now;
-      if (["blog_posts", "life_records", "activity_entries", "places", "todos"].includes(this.table) && !("updated_at" in row)) row.updated_at = now;
+      if (["blog_posts", "life_records", "activity_entries", "places", "todos", "private_drafts"].includes(this.table) && !("updated_at" in row)) row.updated_at = now;
       if (this.table === "blog_posts" && !("published_at" in row)) row.published_at = now;
       if (this.table !== "private_space_keys" && this.table !== "profiles") row.space_id = SPACE_ID;
       if (this.table === "private_space_keys" && !("created_at" in row)) row.created_at = now;
@@ -449,13 +461,14 @@ class LocalQuery {
       }
       const columns = Object.keys(row).map(safeIdentifier);
       const values = columns.map((column) => dbValue(this.table, column, row[column]));
+      const conflictColumns = this.conflictColumn.split(",");
       const update = columns
-        .filter((column) => column !== this.conflictColumn && column !== "created_at")
+        .filter((column) => !conflictColumns.includes(column) && column !== "created_at")
         .map((column) => `${column} = excluded.${column}`)
         .join(", ");
       const conflict = upsert ? ` ON CONFLICT(${this.conflictColumn}) DO UPDATE SET ${update}` : "";
       db.prepare(`INSERT INTO ${this.table} (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})${conflict}`).run(...values);
-      const keyColumn = this.conflictColumn in row ? this.conflictColumn : ("id" in row ? "id" : null);
+      const keyColumn = conflictColumns.length === 1 && conflictColumns[0] in row ? conflictColumns[0] : ("id" in row ? "id" : null);
       if (keyColumn) {
         const stored = db.prepare(`SELECT * FROM ${this.table} WHERE ${keyColumn} = ?`).get(dbValue(this.table, keyColumn, row[keyColumn])) as Record<string, unknown>;
         inserted.push(parseRow(this.table, stored));
@@ -476,7 +489,7 @@ class LocalQuery {
       } else if (this.action === "update") {
         const payload = { ...(this.payload as Record<string, unknown>) };
         this.assertWriteAccess([payload]);
-        if (["blog_posts", "life_records", "activity_entries", "places", "todos"].includes(this.table)) payload.updated_at = new Date().toISOString();
+        if (["blog_posts", "life_records", "activity_entries", "places", "todos", "private_drafts"].includes(this.table)) payload.updated_at = new Date().toISOString();
         const columns = Object.keys(payload).map(safeIdentifier);
         if (!columns.length) throw new Error("No fields to update.");
         const rowsToUpdate = this.readRows(true);

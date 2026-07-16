@@ -4,6 +4,20 @@ import { readEncryptedText } from "../../../lib/private-payload";
 import { isUuid } from "../../../lib/security";
 import { createLocalsClient } from "../../../lib/local-store";
 
+function savedDraftKey(value: FormDataEntryValue | null) {
+  const key = String(value || "").trim();
+  return /^(record|blog)-comment-[0-9a-f-]{36}$/i.test(key) ? key : "";
+}
+
+function appendDraftSaved(path: string, key: string) {
+  if (!key) return path;
+  const hashIndex = path.indexOf("#");
+  const base = hashIndex === -1 ? path : path.slice(0, hashIndex);
+  const hash = hashIndex === -1 ? "" : path.slice(hashIndex);
+  const separator = base.includes("?") ? "&" : "?";
+  return `${base}${separator}draft_saved=${encodeURIComponent(key)}${hash}`;
+}
+
 export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const user = locals.user;
   if (!user) return redirect("/auth/login", 303);
@@ -13,6 +27,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const targetId = String(form.get("target_id") || "").trim();
   const rawReturn = String(form.get("return_to") || "").trim();
   const safeReturn = safeLocalRedirect(rawReturn, "/");
+  const draftKey = savedDraftKey(form.get("draft_key"));
   const errorRedirect = (msg: string) => {
     const sep = safeReturn.includes("?") ? "&" : "?";
     return redirect(`${safeReturn}${sep}error=${encodeURIComponent(msg)}`, 303);
@@ -50,7 +65,11 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   });
   if (error) return errorRedirect("Could not save the comment.");
 
+  if (draftKey) {
+    await store.from("private_drafts").delete().eq("owner_id", user.id).eq("draft_key", draftKey);
+  }
+
   // 评论提交后回到原页面，并加上锚点滚到对应区域
   const anchor = targetType === "record" ? `#rc-${targetId}` : "#comments";
-  return redirect(`${safeReturn}${anchor}`, 303);
+  return redirect(`${appendDraftSaved(safeReturn, draftKey)}${anchor}`, 303);
 };

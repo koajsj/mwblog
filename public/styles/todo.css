@@ -300,6 +300,12 @@ body {
   opacity: .45;
   cursor: not-allowed;
 }
+.todo-draft-note {
+  margin: 8px 4px 0;
+  color: #778a9b;
+  font-size: 12px;
+  line-height: 1.45;
+}
 .todo-filters {
   display: flex;
   gap: 8px;

@@ -8,6 +8,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!user) return json({ error: "Please log in first." }, 401);
 
   const form = await request.formData();
+  const clearDraft = String(form.get("draft_key") || "").trim() === "todo-create";
   let title = "";
   try {
     title = readEncryptedText(form.get("title"), { maxLength: 4096, context: "todo.title" });
@@ -25,5 +26,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
     .insert({ owner_id: user.id, title, due_on: dueOn });
 
   if (error) return json({ error: "Could not create the task." }, 500);
+  if (clearDraft) {
+    await store.from("private_drafts").delete().eq("owner_id", user.id).eq("draft_key", "todo-create");
+  }
   return json({ ok: true });
 };

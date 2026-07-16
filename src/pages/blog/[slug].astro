@@ -118,10 +118,11 @@ const commentError = Astro.url.searchParams.get("error");
         )}
 
         {user ? (
-          <form class="cmt-form" action="/api/comments/create" method="post">
+          <form class="cmt-form" action="/api/comments/create" method="post" data-private-draft={`blog-comment-${post.id}`} data-private-draft-fields="body:comment.body" data-private-draft-lazy>
             <input type="hidden" name="target_type" value="blog" />
             <input type="hidden" name="target_id" value={post.id} />
             <input type="hidden" name="return_to" value={returnTo} />
+            <input type="hidden" name="draft_key" value={`blog-comment-${post.id}`} />
             <textarea name="body" maxlength="500" rows="2" placeholder="Leave a little note for the other person..." required></textarea>
             <button class="cmt-form__send" type="submit">Send</button>
           </form>
@@ -209,7 +210,10 @@ const commentError = Astro.url.searchParams.get("error");
             }
             if (submit && submit.disabled) return;
             if (submit) submit.disabled = true;
-            privateSpace.encryptFormFields(form, { body: "comment.body" }).then(function () {
+            var drafts = window.OurNestPrivateDrafts;
+            Promise.resolve(drafts && drafts.saveForm ? drafts.saveForm(form, true) : null).then(function () {
+              return privateSpace.encryptFormFields(form, { body: "comment.body" });
+            }).then(function () {
               form.submit();
             }).catch(function () {
               if (submit) {

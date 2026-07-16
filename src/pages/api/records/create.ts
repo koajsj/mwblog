@@ -20,6 +20,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!user) return json({ error: "Please log in." }, 401);
 
   const payload = await request.json().catch(() => null);
+  const clearDraft = String(payload?.draft_key || "").trim() === "record-create";
   const recordOn = String(payload?.record_on || "").trim();
   const mood = String(payload?.mood || "happy").trim();
   let body = "";
@@ -103,6 +104,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
       return json({ error: "Could not attach the encrypted photos to this record." }, 500);
     }
     insertedPhotoPaths.push(item.path);
+  }
+
+  if (clearDraft) {
+    await store.from("private_drafts").delete().eq("owner_id", user.id).eq("draft_key", "record-create");
   }
 
   return json({ ok: true });

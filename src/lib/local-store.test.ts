@@ -143,6 +143,49 @@ test("a scoped delete reports whether it actually removed a row", async () => {
   assert.equal(missing.data, null);
 });
 
+test("cloud drafts are scoped to their owner and replace only the matching draft key", async () => {
+  const whiteStore = createLocalsClient({ user: kikou } as App.Locals);
+  const brownStore = createLocalsClient({ user: scoinmic } as App.Locals);
+  const first = await whiteStore.from("private_drafts").upsert({
+    owner_id: kikou.id,
+    draft_key: "record-create",
+    payload: { body: "enc:wc2:first" },
+  }, { onConflict: "owner_id,draft_key" }).select("payload").single();
+  assert.equal(first.error, null);
+  assert.deepEqual(first.data.payload, { body: "enc:wc2:first" });
+
+  const updated = await whiteStore.from("private_drafts").upsert({
+    owner_id: kikou.id,
+    draft_key: "record-create",
+    payload: { body: "enc:wc2:second" },
+  }, { onConflict: "owner_id,draft_key" });
+  assert.equal(updated.error, null);
+
+  const own = await whiteStore.from("private_drafts")
+    .select("payload")
+    .eq("owner_id", kikou.id)
+    .eq("draft_key", "record-create")
+    .single();
+  assert.deepEqual(own.data.payload, { body: "enc:wc2:second" });
+
+  const foreign = await brownStore.from("private_drafts")
+    .select("payload")
+    .eq("owner_id", scoinmic.id)
+    .eq("draft_key", "record-create")
+    .maybeSingle();
+  assert.equal(foreign.error, null);
+  assert.equal(foreign.data, null);
+
+  const blockedDelete = await brownStore.from("private_drafts")
+    .delete()
+    .eq("owner_id", kikou.id)
+    .eq("draft_key", "record-create")
+    .select("draft_key")
+    .maybeSingle();
+  assert.equal(blockedDelete.error, null);
+  assert.equal(blockedDelete.data, null);
+});
+
 test("server sessions can be created and revoked", () => {
   const token = randomBytes(32).toString("base64url");
   createSession(kikou.id, token, new Date(Date.now() + 60_000).toISOString());

@@ -102,6 +102,7 @@ const authorKey = (profile?.author_key || "white") as AuthorKey;
     <slot />
 
     {user && <script is:inline src="/scripts/private-space.js"></script>}
+    {user && <script is:inline src="/scripts/private-drafts.js"></script>}
     {user && <script is:inline src="/scripts/presence.js"></script>}
     <script is:inline src="/scripts/corner-dogs.js"></script>
     <script is:inline src="/scripts/scroll-reveal.js"></script>

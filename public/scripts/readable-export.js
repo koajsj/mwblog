@@ -8,6 +8,46 @@ const confirmInput = document.getElementById("exportPasswordConfirm");
 const progress = document.getElementById("exportProgress");
 const progressBar = document.getElementById("exportProgressBar");
 const status = document.getElementById("exportStatus");
+const backupHealth = document.getElementById("backupHealth");
+
+function backupTime(value) {
+  const date = new Date(String(value || ""));
+  if (Number.isNaN(date.getTime())) return "未知时间";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+async function loadBackupHealth() {
+  if (!backupHealth) return;
+  try {
+    const response = await fetch("/api/status/backup", { credentials: "same-origin", cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error("unavailable");
+    const backup = data.backup || {};
+    if (backup.status === "unknown") {
+      backupHealth.textContent = "暂时没有备份状态。首次服务器备份完成后，这里会显示校验结果。";
+      return;
+    }
+    if (backup.status === "failed") {
+      const previous = backup.lastSuccessAt ? `上次成功：${backupTime(backup.lastSuccessAt)}。` : "尚无成功备份记录。";
+      backupHealth.textContent = `最近一次备份没有完成（${backupTime(backup.lastAttemptAt)}）。${previous}`;
+      return;
+    }
+    if (backup.stale) {
+      backupHealth.textContent = `上次成功备份：${backupTime(backup.lastSuccessAt)}。备份状态已超过一天半，请在 VPS 上检查定时任务。`;
+      return;
+    }
+    backupHealth.textContent = `最近成功备份：${backupTime(backup.lastSuccessAt)}。SQLite 快照已通过完整性校验。`;
+  } catch {
+    backupHealth.textContent = "暂时无法读取服务器备份状态，请稍后重试。";
+  }
+}
 
 function setStatus(message, percent) {
   progress.hidden = false;
@@ -285,3 +325,5 @@ form.addEventListener("submit", async (event) => {
     button.disabled = false;
   }
 });
+
+loadBackupHealth();

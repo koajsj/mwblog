@@ -15,6 +15,7 @@ const protectedApiPrefixes = [
   "/api/status",
   "/api/todos",
   "/api/private-space",
+  "/api/private-drafts",
   "/api/export",
 ];
 const privatePagePrefixes = ["/blog", "/records", "/photos", "/places", "/activity", "/todo", "/export"];

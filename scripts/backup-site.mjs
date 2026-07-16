@@ -90,6 +90,11 @@ async function main() {
       databaseSchemaVersion = Number(source.prepare("PRAGMA user_version").get()?.user_version || 0);
       await backup(source, snapshotDb);
     } finally { source.close(); }
+    const snapshot = new DatabaseSync(snapshotDb, { readOnly: true });
+    try {
+      const integrity = snapshot.prepare("PRAGMA integrity_check").get();
+      if (integrity?.integrity_check !== "ok") throw new Error("SQLite snapshot integrity check failed.");
+    } finally { snapshot.close(); }
     if (existsSync(join(dataDir, "storage"))) cpSync(join(dataDir, "storage"), join(snapshotDir, "storage"), { recursive: true });
 
     const files = walkFiles(snapshotDir).sort().map((path) => ({
